@@ -10,12 +10,17 @@
 </head>
 
 <body>
-    <div id="holder" class="dropify-wrapper" onclick="showSelectAabFile()">
-        <div id="message" class="dropify-message">
-            点击或将文件拖拽到此区域处理(aab 格式的安装包)
+    <div class="Top">
+        <label for="连接设备" title="connectdevice">connectdevice:</label>
+        <select id="connectdevice" name="connectdevice"></select><br><br>
+        <input type="button" value="刷新" onclick="RefreshConnectDevice()">
+
+        <div id="holder" class="dropify-wrapper" onclick="showSelectAabFile()">
+            <div id="message" class="dropify-message">
+                点击或将文件拖拽到此区域处理(aab 格式的安装包)
+            </div>
         </div>
     </div>
-
     <div id="log" class="log-wrapper">
 
     </div>

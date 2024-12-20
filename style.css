@@ -1,6 +1,6 @@
 .dropify-wrapper, .dropify-wrapper-ondrag {
     /* height: 200px; */
-    height: 190px;
+    height: 100px;
     max-width: 100%;
     font-size: 14px;
     padding: 20px 10px;
@@ -12,7 +12,7 @@
 
 .log-wrapper {
     height: 100%;
-    position: relative;
+    /* position: relative; */
     top: 42%;
     font-size: 14px;
     text-align: left;
@@ -21,7 +21,7 @@
 }
 
 .dropify-wrapper-ondrag  {
-    border: 3px dashed rgb(7, 176, 243);
+    border: 3px dashed rgb(7, 100, 243);
 }
 
 .dropify-message {
@@ -37,4 +37,12 @@ span {
     font-size: 14px;
     padding: 5px 10px;
     color: #777;
+}
+
+
+.Top {
+    position: sticky;
+    top: 0;
+    background-color: #fff;
+    /* 如果需要与表头背景色一致，可以设置为相应的颜色值 */
 }

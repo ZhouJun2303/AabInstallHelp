@@ -1,10 +1,11 @@
 const { app, BrowserWindow, ipcMain, ipcRenderer, dialog, nativeImage } = require('electron');
-const {Menu} = require('electron');
+const { Menu } = require('electron');
 const exec = require('child_process').exec;
 const xmlReader = require('xmlreader');
 const path = require('path');
 const readFile = require('fs');
 
+let UseDevicesId = "xxxx";
 // 应用的主窗口
 let mainWindow;
 
@@ -36,7 +37,7 @@ function createWindow() {
 
 app.on('ready', createWindow)
 
-app.on("window-all-closed", function() {
+app.on("window-all-closed", function () {
   app.quit();
 })
 
@@ -67,6 +68,17 @@ ipcMain.on('install_aab', function (event, arg) {
 
   // 开始 aab 安装处理流程
   parseAabContent(event, arg);
+});
+
+// 接收渲染进程发送过来的消息，可以通过：on_install_rsp 发送消息回去
+ipcMain.on('RefreshConnectDevice', function (event, arg) {
+  RefreshConnectDevice(event, arg);
+});
+
+// 接收渲染进程发送过来的消息，可以通过：on_install_rsp 发送消息回去
+ipcMain.on('OnDeviceSeletChange', function (event, arg) {
+  UseDevicesId = arg;
+  sendMsgToUI(event,"选择设备刷新 " + UseDevicesId);  
 });
 
 /**
@@ -100,7 +112,7 @@ function getAdbPath() {
 }
 
 function getInstallTempPath() {
-  let install_temp_path = `${process.resourcesPath}/install_temp`;
+  let install_temp_path = app.isPackaged ? `${process.resourcesPath}/install_temp` : `${app.getAppPath()}/install_temp`;
   return install_temp_path;
 }
 
@@ -120,41 +132,35 @@ function parseAabContent(event, aab_file_path) {
 
   let workerProcess = exec(cmd, (err, stdout, stderr) => {
 
+    var aabInfo = new AabInfo("未识别", "未识别", "未识别");
     if ('' !== stderr) {
       let errorMsg = `获取 aab manifest 文件信息出错，错误信息：${stderr}`;
       sendMsgToUI(event, errorMsg);
-      tipsInstallError(errorMsg);
-      return;
+    } else {
+      xmlReader.read(stdout, function (errors, response) {
+        if (null !== errors) {
+          let errorMsg = `解析 aab 的清单内容出错：${errors}`;
+          log(errorMsg);
+          sendMsgToUI(event, errorMsg);
+        } else {
+
+          // 获取到应用的包名
+          let app_pkg = response.manifest.attributes().package;
+          // 获取应用的版本名
+          let app_vname = response.manifest.attributes()['android:versionName'];
+          // 获取应用的版本号
+          let app_vcode = response.manifest.attributes()['android:versionCode'];
+
+          aabInfo = new AabInfo(app_pkg, app_vname, app_vcode);
+
+          let aabParseRst = `aab 文件解析结果如下👉：\n应用包名：${aabInfo.pkg}，应用版本信息：${aabInfo.getAppVersionInfo()}\n`;
+
+          log(aabParseRst);
+          sendMsgToUI(event, aabParseRst);
+        }
+      })
     }
-
-    xmlReader.read(stdout, function (errors, response) {
-      if (null !== errors) {
-        let errorMsg = `解析 aab 的清单内容出错：${errors}`;
-        log(errorMsg);
-        sendMsgToUI(event, errorMsg);
-        tipsInstallError(errorMsg);
-        return;
-      }
-
-      // 获取到应用的包名
-      let app_pkg = response.manifest.attributes().package;
-      // 获取应用的版本名
-      let app_vname = response.manifest.attributes()['android:versionName'];
-      // 获取应用的版本号
-      let app_vcode = response.manifest.attributes()['android:versionCode'];
-
-      var aabInfo = new AabInfo(app_pkg, app_vname, app_vcode);
-
-      let aabParseRst = `aab 文件解析结果如下👉：\n应用包名：${aabInfo.pkg}，应用版本信息：${aabInfo.getAppVersionInfo()}\n`;
-
-      log(aabParseRst);
-      sendMsgToUI(event, aabParseRst);
-      generateSpecFile(event, aab_file_path, aabInfo);
-
-      // log(response.manifest);
-      // log(response.manifest.application.activity.array[0].attributes()['android:name']);
-      // log(response.manifest.application.activity.array[0]['intent-filter'] !== null);
-    })
+    generateSpecFile(event, aab_file_path, aabInfo);
   });
 }
 
@@ -178,7 +184,7 @@ function generateSpecFile(event, aab_file_path, aabInfo) {
   let device_spec_file = `${install_temp_path}/device-spec.json`;
 
   // 1、生成连接设备对应的 spec 文件命令
-  let gen_device_spec_cmd = `${bundletool_jar_path} get-device-spec --adb ${adb_path} --output=${device_spec_file} --overwrite`;
+  let gen_device_spec_cmd = `${bundletool_jar_path} get-device-spec --adb ${adb_path} --output=${device_spec_file} --overwrite --device-id=${UseDevicesId}`;
 
   let workerProcess = exec(gen_device_spec_cmd, (errE, stdout) => {
     if (null !== errE) {
@@ -382,6 +388,53 @@ function log(log_str) {
   console.log(log_str);
 }
 
+function RefreshConnectDevice(event, arg) {
+  let adb_path = getAdbPath();
+  let refreshconnectdevice_cmd = `${adb_path} devices -l`;
+
+  let workerProcess = exec(refreshconnectdevice_cmd, (errE, stdout) => {
+    if (null !== errE) {
+      sendMsgToUI(event, `RefreshConnectDevice，错误信息：${errE}`);
+      return;
+    }
+    sendMsgToUI(event, 'stdout: ' + stdout);
+    var deviceIds = parseDevices(stdout);
+    event.sender.send('onDeviceList', deviceIds);
+  });
+}
+
+// 解析 adb devices 输出并提取设备信息
+function parseDevices(output) {
+  let lines = output.trim().split('\n'); // 分割输出的每一行
+  let devices = [];
+
+  lines.forEach(line => {
+    // 每行通常格式为 "设备ID         状态 product:设备名称 model:设备型号 device:aosp"
+    let parts = line.split(' ');
+    let deviceId = parts[0]; // 第一部分是设备 ID
+    let status = parts[1]; // 第二部分是设备状态（device 或 offline 等）
+    let productInfo = parts.slice(2).join(' '); // 其余部分包含 product 信息
+
+    // 如果设备状态是 offline 或者设备名称为 Unknown，则跳过
+    if (status === 'offline') {
+      return; // 跳过 offline 设备
+    }
+
+    // 从 product 信息中提取设备名称（可以通过正则表达式提取 "product:设备名称"）
+    let match = productInfo.match(/product:([^\s]+)/);
+    let deviceName = match ? match[1] : 'Unknown'; // 如果匹配不到设备名称，默认返回 'Unknown'
+
+    // 如果设备名称是 Unknown，则跳过该设备
+    if (deviceName === 'Unknown') {
+      return;
+    }
+    // 将有效的设备信息存入数组
+    devices.push({ device_name: deviceName, device_id: deviceId });
+  });
+
+  return devices;
+};
+
 // aab 文件信息类
 class AabInfo {
   constructor(pkg_v, vname_v, vcode_v) {
@@ -435,3 +488,4 @@ class KeystoreConfig {
     this.key_pass = key_pass_v;
   }
 }
+

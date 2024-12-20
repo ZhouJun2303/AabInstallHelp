@@ -2,6 +2,18 @@
 const ipcRenderer = require('electron').ipcRenderer;
 const remote = require('electron').remote;
 
+var connectdeviceSelect = document.getElementById("connectdevice");
+// 添加事件监听器
+connectdeviceSelect.addEventListener('change', () => {
+  RefreshSelectConnectDevice();
+});
+
+RefreshSelectConnectDevice = function () {
+  var select = document.getElementById("connectdevice");
+  ipcRenderer.send('OnDeviceSeletChange', select.value);
+}
+RefreshSelectConnectDevice(); 
+
 open_select_file = function () {
   ipcRenderer.send('open_file_select');
 }
@@ -51,3 +63,22 @@ function showSelectAabFile() {
       start_process_aab(aabFilePath);
     });
 }
+
+
+// 监听主进程发送过来的设备
+ipcRenderer.on('onDeviceList', function (event, deviceList) {
+
+  console.log("接收到主进程发送的消息：" + "onDeviceList:" + deviceList);
+  var select = document.getElementById("connectdevice");
+  select.innerHTML = "";
+  deviceList.forEach(function (device) {
+    var option = document.createElement("option");
+    option.value = device.device_id;
+    option.textContent = device.device_id + "|" + device.device_name;
+    select.appendChild(option);
+  });
+});
+
+RefreshConnectDevice = function () {
+  ipcRenderer.send('RefreshConnectDevice');
+};
