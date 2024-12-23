@@ -5,7 +5,8 @@ const xmlReader = require('xmlreader');
 const path = require('path');
 const readFile = require('fs');
 
-let UseDevicesId = "xxxx";
+let commonConfig = "";
+let UseDevicesId = "";
 // 应用的主窗口
 let mainWindow;
 
@@ -13,7 +14,7 @@ let mainWindow;
 function createWindow() {
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
-    title: "安装 aab 程序包",
+    title: "安装 aab 程序包 (不要外传，包含应用签名及密码)",
     minHeight: 600,
     minWidth: 800,
     width: 800,
@@ -33,7 +34,24 @@ function createWindow() {
   console.log(`平台信息：` + process.platform);
   console.log('是否是开发环境：' + app.isPackaged);
   console.log(`资源路径：${process.resourcesPath}`)
+
+  commonConfig = LoadConfig();
 }
+
+//读取配置文件
+function LoadConfig() {
+  // 同步读取 JSON 文件
+  let filePath = getConfigPath();
+  try {
+    const data = readFile.readFileSync(filePath, 'utf8');  // 读取文件内容
+    const jsonData = JSON.parse(data);  // 解析 JSON 数据
+    return jsonData;
+  } catch (err) {
+    console.error('读取或解析文件失败:', err);
+    return null;
+  }
+}
+
 
 app.on('ready', createWindow)
 
@@ -77,9 +95,14 @@ ipcMain.on('RefreshConnectDevice', function (event, arg) {
 
 // 接收渲染进程发送过来的消息，可以通过：on_install_rsp 发送消息回去
 ipcMain.on('OnDeviceSeletChange', function (event, arg) {
-  UseDevicesId = arg;
-  sendMsgToUI(event,"选择设备刷新 " + UseDevicesId);  
+  UseDevicesIdRefresh(event, arg);
 });
+
+function UseDevicesIdRefresh(event, arg) {
+  if (UseDevicesId == arg) return;
+  UseDevicesId = arg;
+  sendMsgToUI(event, "当前选择设备刷新： " + UseDevicesId);
+}
 
 /**
  * 发送消息到 UI 界面进行展示
@@ -96,7 +119,7 @@ function getAssetsPath() {
 }
 
 function getBundletoolJarPath() {
-  let bundletool_jar_path = `${getJavaPath()} -jar ${getAssetsPath()}/bundletool-all-0.13.4.jar`;
+  let bundletool_jar_path = `${getJavaPath()} -jar ${getAssetsPath()}/bundletool-all-1.5.0.jar`;
   return bundletool_jar_path;
 }
 
@@ -116,6 +139,11 @@ function getInstallTempPath() {
   return install_temp_path;
 }
 
+function getConfigPath() {
+  let config_path = `${getAssetsPath()}/common.json`;
+  return config_path;
+}
+
 /**
  * 第一步：解析 aab 文件，用于获取到应用相关的信息
  * 
@@ -123,6 +151,15 @@ function getInstallTempPath() {
  * @param {*} aab_file_path 
  */
 function parseAabContent(event, aab_file_path) {
+  if (null == aab_file_path || '' == aab_file_path) {
+    sendMsgToUI(event, "未选择文件");
+    return;
+  }
+  if (UseDevicesId == null || UseDevicesId == "") {
+    sendMsgToUI(event, "未选择设备");
+    return;
+  }
+  sendMsgToUI(event, `当前选择设备： ${UseDevicesId}`);
   sendMsgToUI(event, `1、正在进行 aab 文件解析：${path.basename(aab_file_path)}`);
 
   let bundletool_jar_path = getBundletoolJarPath();
@@ -249,7 +286,7 @@ function buildApksFile(event, aab_file_path, aabInfo, device_spec_file) {
   log(`获取到的签名信息：ks_pass=${keyStoreConfig.ks_pass}, alias=${keyStoreConfig.alias}, key_pass=${keyStoreConfig.key_pass}`);
 
   // 根据 spec 文件生成 apks 文件
-  let gen_apks_cmd = `${bundletool_jar_path} build-apks  --adb ${adb_path} --bundle=${aab_file_path} --device-spec=${device_spec_file} --output=${apks_file} --ks=${ks_file} --ks-pass=pass:${keyStoreConfig.ks_pass} --ks-key-alias=${keyStoreConfig.alias} --key-pass=pass:${keyStoreConfig.key_pass} --overwrite`;
+  let gen_apks_cmd = `${bundletool_jar_path} build-apks --bundle=${aab_file_path} --device-spec=${device_spec_file} --output=${apks_file} --ks=${ks_file} --ks-pass=pass:${keyStoreConfig.ks_pass} --ks-key-alias=${keyStoreConfig.alias} --key-pass=pass:${keyStoreConfig.key_pass} --overwrite`;
 
   let workerProcess = exec(gen_apks_cmd, (errE, stdout) => {
     if (null !== errE) {
@@ -282,7 +319,7 @@ function installApkToDevice(event, aabInfo, apks_file) {
   let adb_path = getAdbPath();
 
   // 3、安装 apks 到连接设备
-  let install_apks_cmd = `${bundletool_jar_path} install-apks  --adb ${adb_path} --apks=${apks_file}`;
+  let install_apks_cmd = `${bundletool_jar_path} install-apks  --adb ${adb_path} --apks=${apks_file} --device-id=${UseDevicesId}`;
 
   let workerProcess = exec(install_apks_cmd, (errE, stdout) => {
     if (null !== errE) {
@@ -317,7 +354,7 @@ function autoStartApplication(event, aabInfo) {
   let adb_path = getAdbPath();
 
   // 4、启动刚才安装好的应用
-  let start_app_cmd = `${adb_path} shell am start -n "${aabInfo.getAutoStartActivity()}" -a android.intent.action.MAIN -c android.intent.category.LAUNCHER`;
+  let start_app_cmd = `${adb_path} shell am start -n "${aabInfo.getAutoStartActivity()}" -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --device-id=${UseDevicesId}`;
 
   let workerProcess = exec(start_app_cmd, (errE, stdout) => {
     if (null !== errE) {
@@ -397,17 +434,16 @@ function RefreshConnectDevice(event, arg) {
       sendMsgToUI(event, `RefreshConnectDevice，错误信息：${errE}`);
       return;
     }
-    sendMsgToUI(event, 'stdout: ' + stdout);
-    var deviceIds = parseDevices(stdout);
+    var deviceIds = parseDevices(event, stdout);
     event.sender.send('onDeviceList', deviceIds);
   });
 }
 
 // 解析 adb devices 输出并提取设备信息
-function parseDevices(output) {
+function parseDevices(event, output) {
   let lines = output.trim().split('\n'); // 分割输出的每一行
   let devices = [];
-
+  UseDevicesIdRefresh(event, '');
   lines.forEach(line => {
     // 每行通常格式为 "设备ID         状态 product:设备名称 model:设备型号 device:aosp"
     let parts = line.split(' ');
@@ -415,8 +451,11 @@ function parseDevices(output) {
     let status = parts[1]; // 第二部分是设备状态（device 或 offline 等）
     let productInfo = parts.slice(2).join(' '); // 其余部分包含 product 信息
 
+    if (line.indexOf('offline') != -1) {
+      return;
+    }
     // 如果设备状态是 offline 或者设备名称为 Unknown，则跳过
-    if (status === 'offline') {
+    if (status == 'offline') {
       return; // 跳过 offline 设备
     }
 
@@ -425,13 +464,14 @@ function parseDevices(output) {
     let deviceName = match ? match[1] : 'Unknown'; // 如果匹配不到设备名称，默认返回 'Unknown'
 
     // 如果设备名称是 Unknown，则跳过该设备
-    if (deviceName === 'Unknown') {
+    if (deviceName == 'Unknown') {
       return;
     }
     // 将有效的设备信息存入数组
     devices.push({ device_name: deviceName, device_id: deviceId });
-  });
 
+    UseDevicesIdRefresh(event, deviceId);
+  });
   return devices;
 };
 
@@ -451,10 +491,12 @@ class AabInfo {
    * 获取签名文件名，放在 assets 目录下
    */
   getKeystoreName() {
-    // 可以针对不同应用使用不同的签名文件
-    if (this.pkg == 'com.fireantzhang.aabdemo') {
-      return 'release.jks';
+    if (null != commonConfig) {
+      if (commonConfig[this.pkg] != null) {
+        return commonConfig[this.pkg].keyPath
+      }
     }
+    sendMsgToUI("未找到签名文件位置 请检查配置：" + this.pkg);
     return 'release.jks'
   }
 
@@ -462,9 +504,12 @@ class AabInfo {
    * 获取签名配置信息
    */
   getKeystoreConfig() {
-    if (this.pkg == 'com.fireantzhang.aabdemo') {
-      return new KeystoreConfig('fireantzhang', 'fireantzhang', 'fireantzhang');
+    if (null != commonConfig) {
+      if (commonConfig[this.pkg] != null) {
+        return new KeystoreConfig(commonConfig[this.pkg].storePassword, commonConfig[this.pkg].keyAlias, commonConfig[this.pkg].keyPassword);
+      }
     }
+    sendMsgToUI("未找到签名配置信息 请检查配置：" + this.pkg);
     return new KeystoreConfig('fireantzhang', 'fireantzhang', 'fireantzhang');
   }
 
@@ -472,10 +517,12 @@ class AabInfo {
    * 获取启动的 activity，TODO：调整成直接从清单文件中读取，不过逻辑有点复杂，暂时未实现
    */
   getAutoStartActivity() {
-    if (this.pkg == 'com.fireantzhang.aabdemo') {
-      return 'com.fireantzhang.aabdemo/com.fireantzhang.aabdemo.MainActivity';
+    if (null != commonConfig) {
+      if (commonConfig[this.pkg] != null) {
+        return this.pkg + "/" + commonConfig[this.pkg].StartActivity;
+      }
     }
-
+    sendMsgToUI("未找到启动的 activity  请检查配置：" + this.pkg);
     return null;
   }
 }

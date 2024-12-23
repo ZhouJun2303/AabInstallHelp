@@ -55,3 +55,6 @@ ehthumbs.db
 *.lnk
 
 .vscode/
+config
+install_temp
+bin_win/java/lib/modules

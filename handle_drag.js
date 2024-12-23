@@ -37,8 +37,8 @@ holder.ondrop = (e) => {
         message.innerHTML = "已选择文件：" + f.path + "<br><br>";
 
         holder.className = "dropify-wrapper";
-
-        start_process_aab(filepath);
+        window.aabFilePath = filepath;
+        start_process_aab();
     }
 }
 

@@ -1,7 +1,7 @@
 // 渲染进程（web page）
 const ipcRenderer = require('electron').ipcRenderer;
 const remote = require('electron').remote;
-
+window.aabFilePath = "";
 var connectdeviceSelect = document.getElementById("connectdevice");
 // 添加事件监听器
 connectdeviceSelect.addEventListener('change', () => {
@@ -12,20 +12,19 @@ RefreshSelectConnectDevice = function () {
   var select = document.getElementById("connectdevice");
   ipcRenderer.send('OnDeviceSeletChange', select.value);
 }
-RefreshSelectConnectDevice(); 
+RefreshSelectConnectDevice();
 
 open_select_file = function () {
   ipcRenderer.send('open_file_select');
 }
 
 // 把需要处理的文件路径传递给主进程
-start_process_aab = function (file_path) {
+start_process_aab = function () {
 
   const log = document.getElementById('log');
 
   log.innerHTML = "正在安装：<br>";
-
-  ipcRenderer.send('install_aab', file_path);
+  InstallAAb();
 };
 
 // 监听主进程发送过来的安装结果
@@ -55,12 +54,12 @@ function showSelectAabFile() {
       }
       const filenames = res.filePaths;
 
-      const aabFilePath = filenames[0];
+      aabFilePath = filenames[0];
 
       const message = document.getElementById('message');
       message.innerText = "已选择文件：" + aabFilePath + "\n\n"
 
-      start_process_aab(aabFilePath);
+      start_process_aab();
     });
 }
 
@@ -82,3 +81,13 @@ ipcRenderer.on('onDeviceList', function (event, deviceList) {
 RefreshConnectDevice = function () {
   ipcRenderer.send('RefreshConnectDevice');
 };
+InstallAAb = function () {
+  ipcRenderer.send('install_aab', this.aabFilePath);
+};
+
+ClearLog = function () {
+  const log = document.getElementById('log');
+  log.innerText = "0.0";
+}
+
+RefreshConnectDevice();
