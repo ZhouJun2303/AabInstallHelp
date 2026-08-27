@@ -26,8 +26,14 @@ const DEBUG_SIGN = {
 // 创建主窗口
 function createWindow() {
   // 创建浏览器窗口
+  const iconIco = path.join(__dirname, 'resources', 'icon.ico');
+  const iconPng = path.join(__dirname, 'resources', 'icon.png');
+  const windowIcon = (process.platform === 'win32' && readFile.existsSync(iconIco))
+    ? iconIco
+    : iconPng;
   mainWindow = new BrowserWindow({
     title: "AAB 安装助手",
+    icon: windowIcon,
     minHeight: 640,
     minWidth: 900,
     width: 960,

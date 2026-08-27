@@ -1,6 +1,7 @@
 // 渲染进程（web page）
 const ipcRenderer = require('electron').ipcRenderer;
 const remote = require('electron').remote;
+const clipboard = require('electron').clipboard;
 const fs = require('fs');
 const path = require('path');
 
@@ -272,6 +273,7 @@ ipcRenderer.on('on_install_rsp', function (event, arg) {
   const log = document.getElementById('log');
   log.innerText = log.innerText + arg;
   log.scrollTop = log.scrollHeight;
+  updateCopyLogButton();
 });
 
 ipcRenderer.on('on_install_state', function (event, payload) {
@@ -381,15 +383,45 @@ InstallAAb = function () {
   }
   const log = document.getElementById('log');
   log.innerText = "正在安装：\n";
+  updateCopyLogButton();
   rememberAab(filepath);
   window.installBusy = true;
   updateActionState();
   ipcRenderer.send('install_aab', filepath);
 };
 
+function logText() {
+  var log = document.getElementById('log');
+  return log ? (log.innerText || '') : '';
+}
+
+function updateCopyLogButton() {
+  var btn = document.getElementById('btn-copy-log');
+  if (!btn || btn.dataset.copied === '1') return;
+  btn.disabled = !logText().trim();
+}
+
+CopyLog = function () {
+  var text = logText();
+  if (!text.trim()) return;
+  clipboard.writeText(text);
+  var btn = document.getElementById('btn-copy-log');
+  if (!btn) return;
+  var prev = btn.textContent;
+  btn.dataset.copied = '1';
+  btn.textContent = '已复制';
+  btn.disabled = true;
+  setTimeout(function () {
+    btn.dataset.copied = '';
+    btn.textContent = prev || '复制日志';
+    updateCopyLogButton();
+  }, 1200);
+};
+
 ClearLog = function () {
   const log = document.getElementById('log');
   log.innerText = "";
+  updateCopyLogButton();
 }
 
 CheckUpdate = function () {
@@ -407,4 +439,5 @@ OpenProjectLink = function (event) {
 RefreshConnectDevice();
 initAabHistory();
 updateActionState();
+updateCopyLogButton();
 ipcRenderer.send('query_app_info');

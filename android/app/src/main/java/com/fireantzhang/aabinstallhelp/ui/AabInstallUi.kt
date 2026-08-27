@@ -24,7 +24,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.Button
@@ -48,6 +47,10 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -115,7 +118,7 @@ fun AabInstallAppScreen(vm: AppViewModel) {
                             },
                             actions = {
                                 IconButton(onClick = { vm.openProjectPage() }) {
-                                    Icon(Icons.Outlined.Info, contentDescription = "关于")
+                                    Icon(AboutIcon, contentDescription = "关于")
                                 }
                                 IconButton(onClick = { vm.checkUpdate() }, enabled = !install.busy && !ui.checkingUpdate) {
                                     Icon(Icons.Outlined.SystemUpdateAlt, contentDescription = "检查更新")
@@ -134,7 +137,11 @@ fun AabInstallAppScreen(vm: AppViewModel) {
                                     enabled = ui.canInstall,
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
                                 ) {
-                                    Text(if (ui.selected == null) "请先选择 AAB" else "安装 ${ui.selected?.name ?: "AAB"}")
+                                    val selected = ui.selected
+                                    Text(
+                                        if (selected == null) "请先选择 AAB"
+                                        else "${selected.actionLabel()} ${selected.name}"
+                                    )
                                 }
                             }
                         }
@@ -250,7 +257,7 @@ private fun PermissionPane(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("AAB 安装助手", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             IconButton(onClick = onOpenProject) {
-                Icon(Icons.Outlined.Info, contentDescription = "关于")
+                Icon(AboutIcon, contentDescription = "关于")
             }
         }
         Text("安装前需要授予存储与安装权限。未完成前不能扫描或安装。", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
@@ -342,16 +349,37 @@ private fun FileCard(
                     maxLines = 2
                 )
                 Text("$size · $time", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                file.installStatusLine()?.let { status ->
+                    Text(
+                        status,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             Button(
                 onClick = onInstall,
                 enabled = enabled && canInstall,
                 modifier = Modifier.padding(start = 8.dp)
             ) {
-                Text("安装")
+                Text(file.actionLabel())
             }
         }
     }
+}
+
+private fun AabFile.installStatusLine(): String? {
+    if (packageName.isNullOrBlank()) return null
+    val aabVer = listOfNotNull(versionName, versionCode?.let { "($it)" }).joinToString(" ").ifBlank { "?" }
+    val installed = if (installedVersionCode != null || !installedVersionName.isNullOrBlank()) {
+        val instVer = listOfNotNull(installedVersionName, installedVersionCode?.let { "($it)" }).joinToString(" ")
+        "已装 $instVer"
+    } else {
+        "未安装"
+    }
+    return "$packageName  $aabVer  ·  $installed"
 }
 
 private fun displayPath(path: String): String {
@@ -447,9 +475,17 @@ private fun InstallLogPane(
         InstallStep.Launch to "启动"
     )
     val logState = rememberLazyListState()
+    var copied by remember(install.logs.size, install.resultMessage) { mutableStateOf(false) }
+    val canCopy = install.logs.isNotEmpty() || !install.resultMessage.isNullOrBlank()
     LaunchedEffect(install.logs.size) {
         if (install.logs.isNotEmpty()) {
             logState.scrollToItem(install.logs.lastIndex)
+        }
+    }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1500)
+            copied = false
         }
     }
     Column(modifier) {
@@ -475,7 +511,15 @@ private fun InstallLogPane(
             Text(install.resultMessage ?: "", fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(8.dp))
         }
-        Text("安装日志", fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("安装日志", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            TextButton(
+                onClick = { if (vm.copyLogs()) copied = true },
+                enabled = canCopy
+            ) {
+                Text(if (copied) "已复制" else "复制日志")
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Card(
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -501,7 +545,9 @@ private fun InstallLogPane(
         if (showActions) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { vm.startInstall() }, enabled = ui.canInstall) { Text("安装 AAB") }
+                Button(onClick = { vm.startInstall() }, enabled = ui.canInstall) {
+                    Text("${ui.selected?.actionLabel() ?: "安装"} AAB")
+                }
                 if (install.busy) {
                     OutlinedButton(onClick = { vm.cancelInstall() }) { Text("取消") }
                 }

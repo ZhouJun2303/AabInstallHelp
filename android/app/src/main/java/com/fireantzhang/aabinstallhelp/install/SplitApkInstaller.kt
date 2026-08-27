@@ -15,6 +15,7 @@ import java.util.zip.ZipFile
 object SplitApkInstaller {
     const val ACTION_INSTALL_RESULT = "com.fireantzhang.aabinstallhelp.INSTALL_RESULT"
     const val EXTRA_SESSION = "session_id"
+    private const val INSTALL_ALLOW_DOWNGRADE = 0x00000080
 
     fun extractApks(apksFile: File, destDir: File): List<File> {
         if (destDir.exists()) destDir.deleteRecursively()
@@ -56,6 +57,8 @@ object SplitApkInstaller {
             }
         } catch (_: PackageManager.NameNotFoundException) {
             null
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -75,18 +78,28 @@ object SplitApkInstaller {
         }
     }
 
+    fun versionCodeOf(info: PackageInfo?): Long? {
+        if (info == null) return null
+        return if (Build.VERSION.SDK_INT >= 28) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
+        }
+    }
+
     fun versionLabel(info: PackageInfo?): String? {
         if (info == null) return null
-        val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode.toString() else {
-            @Suppress("DEPRECATION")
-            info.versionCode.toString()
-        }
+        val code = versionCodeOf(info)?.toString() ?: "?"
         return "${info.versionName ?: "?"}.$code"
     }
 
-    fun createSession(context: Context, apks: List<File>): Int {
+    fun createSession(context: Context, apks: List<File>, allowDowngrade: Boolean = false): Int {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        if (allowDowngrade) {
+            enableDowngrade(params)
+        }
         if (Build.VERSION.SDK_INT >= 34) {
             params.setDontKillApp(true)
         }
@@ -125,6 +138,21 @@ object SplitApkInstaller {
         }
         val pending = PendingIntent.getBroadcast(context, pkg.hashCode(), intent, flags)
         installer.uninstall(pkg, pending.intentSender)
+    }
+
+    private fun enableDowngrade(params: PackageInstaller.SessionParams) {
+        try {
+            params.javaClass.getMethod("setRequestDowngrade", java.lang.Boolean.TYPE)
+                .invoke(params, true)
+            return
+        } catch (_: Throwable) {
+        }
+        try {
+            val field = params.javaClass.getDeclaredField("installFlags")
+            field.isAccessible = true
+            field.setInt(params, field.getInt(params) or INSTALL_ALLOW_DOWNGRADE)
+        } catch (_: Throwable) {
+        }
     }
 
     private fun sha256(bytes: ByteArray): String {

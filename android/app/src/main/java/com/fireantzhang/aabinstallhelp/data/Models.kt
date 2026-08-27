@@ -11,6 +11,12 @@ enum class InstallStep {
     Failed
 }
 
+enum class InstallKind {
+    Install,
+    Update,
+    Downgrade
+}
+
 data class AabFile(
     val path: String,
     val name: String,
@@ -18,8 +24,17 @@ data class AabFile(
     val lastModified: Long,
     val packageName: String? = null,
     val versionName: String? = null,
-    val versionCode: String? = null
-)
+    val versionCode: String? = null,
+    val installedVersionName: String? = null,
+    val installedVersionCode: String? = null,
+    val installKind: InstallKind = InstallKind.Install
+) {
+    fun actionLabel(): String = when (installKind) {
+        InstallKind.Install -> "安装"
+        InstallKind.Update -> "更新"
+        InstallKind.Downgrade -> "降级"
+    }
+}
 
 data class AabInfo(
     val pkg: String,

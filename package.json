@@ -1,6 +1,6 @@
 {
   "name": "AabInstalllHelp",
-  "icon": "waka_logo.png",
+  "icon": "resources/icon.png",
   "version": "1.0.3",
   "description": "aab ",
   "main": "main.js",
@@ -33,7 +33,9 @@
       "main.js",
       "process.js",
       "handle_drag.js",
-      "style.css"
+      "style.css",
+      "resources/icon.png",
+      "resources/icon.ico"
     ],
     "mac": {
       "asar": false,
@@ -41,13 +43,13 @@
       "target": [
         "dmg"
       ],
-      "icon": "icon.png"
+      "icon": "resources/icon.png"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "resources/icon.png"
+      "icon": "resources/icon.ico"
     },
     "publish": [],
     "directories": {

@@ -12,6 +12,7 @@ import com.fireantzhang.aabinstallhelp.AabInstallApp
 import com.fireantzhang.aabinstallhelp.MainActivity
 import com.fireantzhang.aabinstallhelp.R
 import com.fireantzhang.aabinstallhelp.data.DeviceSpecFactory
+import com.fireantzhang.aabinstallhelp.data.InstallKind
 import com.fireantzhang.aabinstallhelp.data.InstallStep
 import com.fireantzhang.aabinstallhelp.data.RuntimeAssets
 import kotlinx.coroutines.CoroutineScope
@@ -70,10 +71,22 @@ class InstallService : Service() {
             val info = withContext(Dispatchers.IO) { BundletoolConverter.parseAab(aab) }
             InstallCoordinator.setParsed(info)
             log("应用包名：${info.pkg}，版本：${info.versionLabel()}")
+            val existing = SplitApkInstaller.existingPackageInfo(this, info.pkg)
+            val installedCode = SplitApkInstaller.versionCodeOf(existing)
+            val aabCode = info.versionCode?.toLongOrNull()
+            val installKind = AabInstallProbe.kind(aabCode, installedCode)
+            when (installKind) {
+                InstallKind.Install -> log("本机未安装 ${info.pkg}，将进行安装")
+                InstallKind.Update -> log(
+                    "本机已安装 ${info.pkg} ${SplitApkInstaller.versionLabel(existing)}，aab ${info.versionLabel()} 版本更高，将进行更新"
+                )
+                InstallKind.Downgrade -> log(
+                    "本机已安装 ${info.pkg} ${SplitApkInstaller.versionLabel(existing)}，aab ${info.versionLabel()} 不高于已装版本，将进行降级"
+                )
+            }
 
             val signed = SplitApkInstaller.isDebugSigned(this, info.pkg)
             if (signed == false && !retriedUninstall) {
-                val existing = SplitApkInstaller.existingPackageInfo(this, info.pkg)
                 InstallCoordinator.askConflict(
                     pkg = info.pkg,
                     installedVersion = SplitApkInstaller.versionLabel(existing),
@@ -106,7 +119,11 @@ class InstallService : Service() {
             log("5、正在安装到本机")
             val apkDir = File(work, "splits")
             val splits = withContext(Dispatchers.IO) { SplitApkInstaller.extractApks(apks, apkDir) }
-            SplitApkInstaller.createSession(this, splits)
+            SplitApkInstaller.createSession(
+                this,
+                splits,
+                allowDowngrade = installKind == InstallKind.Downgrade
+            )
             val event = withTimeout(5 * 60_000L) { InstallBus.events.first { !it.uninstall } }
             if (!event.success) {
                 if (!retriedUninstall && SplitApkInstaller.isSignatureMismatch(event.message)) {

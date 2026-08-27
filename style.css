@@ -59,14 +59,32 @@ body {
 .btn-icon {
     width: 36px;
     min-width: 36px;
+    height: 36px;
     padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    line-height: 0;
+    overflow: hidden;
+    flex-shrink: 0;
 }
 
+.btn-icon-glyph {
+    display: flex;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.btn-icon-glyph svg,
 .btn-icon svg {
     display: block;
+    width: 20px;
+    height: 20px;
+    max-width: 20px;
+    max-height: 20px;
 }
 
 .header-actions {
@@ -197,6 +215,10 @@ select {
 
 .log-card .row {
     margin-bottom: 8px;
+}
+
+.log-card .card-title {
+    margin-bottom: 0;
 }
 
 .log-wrapper {

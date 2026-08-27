@@ -13,6 +13,7 @@ import com.fireantzhang.aabinstallhelp.data.AabScanner
 import com.fireantzhang.aabinstallhelp.data.ConflictState
 import com.fireantzhang.aabinstallhelp.data.Permissions
 import com.fireantzhang.aabinstallhelp.data.UpdateInfo
+import com.fireantzhang.aabinstallhelp.install.AabInstallProbe
 import com.fireantzhang.aabinstallhelp.install.InstallCoordinator
 import com.fireantzhang.aabinstallhelp.install.InstallService
 import com.fireantzhang.aabinstallhelp.install.SplitApkInstaller
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -57,6 +59,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (Permissions.ready(app)) {
             scan()
             silentCheckUpdate()
+        }
+        viewModelScope.launch {
+            var lastSuccess: Boolean? = null
+            install.collect { state ->
+                if (state.success == true && lastSuccess != true) {
+                    refreshInstalledKinds()
+                }
+                lastSuccess = state.success
+            }
         }
     }
 
@@ -115,9 +126,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     scanHint = if (result.isEmpty()) {
                         "未找到 aab。已扫浏览器 Download、微信/飞书/钉钉下载目录；Android/data 若系统拦截请点「选择文件」。"
                     } else {
-                        "找到 ${result.size} 个 aab"
+                        "找到 ${result.size} 个 aab，正在识别已装版本…"
                     }
                 )
+            }
+            if (result.isNotEmpty()) {
+                val selectedPath = _ui.value.selected?.path
+                val ordered = if (selectedPath == null) {
+                    result
+                } else {
+                    result.sortedBy { file -> if (file.path == selectedPath) 0 else 1 }
+                }
+                enrichFiles(ordered)
+                if (isActive) {
+                    _ui.update { state ->
+                        state.copy(
+                            scanHint = if (state.files.isEmpty()) state.scanHint else "找到 ${state.files.size} 个 aab"
+                        )
+                    }
+                }
             }
         }
     }
@@ -139,6 +166,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { state ->
             val files = AabScanner.dedupe(listOf(item) + state.files)
             state.copy(files = files, selected = item, scanHint = "已选择 ${item.name}")
+        }
+        viewModelScope.launch {
+            val ctx = getApplication<Application>()
+            val enriched = withContext(Dispatchers.IO) { AabInstallProbe.enrich(ctx, item) }
+            replaceFile(enriched)
         }
     }
 
@@ -238,6 +270,48 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val ctx = getApplication<Application>()
         val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("aab", text))
+    }
+
+    fun copyLogs(): Boolean {
+        val state = install.value
+        val lines = ArrayList<String>()
+        val result = state.resultMessage
+        if (!result.isNullOrBlank()) {
+            lines.add(result)
+        }
+        state.logs.forEach { lines.add(it.text) }
+        val text = lines.joinToString("\n")
+        if (text.isBlank()) return false
+        copyText(text)
+        return true
+    }
+
+    private suspend fun enrichFiles(files: List<AabFile>) {
+        val ctx = getApplication<Application>()
+        val working = files.toMutableList()
+        for (i in working.indices) {
+            if (scanJob?.isCancelled == true) return
+            val enriched = withContext(Dispatchers.IO) { AabInstallProbe.enrich(ctx, working[i]) }
+            working[i] = enriched
+            replaceFile(enriched)
+        }
+    }
+
+    private fun refreshInstalledKinds() {
+        val ctx = getApplication<Application>()
+        _ui.update { state ->
+            val files = state.files.map { AabInstallProbe.applyInstalled(ctx, it) }
+            val selected = state.selected?.let { cur -> files.find { it.path == cur.path } } ?: state.selected
+            state.copy(files = files, selected = selected)
+        }
+    }
+
+    private fun replaceFile(file: AabFile) {
+        _ui.update { state ->
+            val files = state.files.map { if (it.path == file.path) file else it }
+            val selected = if (state.selected?.path == file.path) file else state.selected
+            state.copy(files = files, selected = selected)
+        }
     }
 
     fun openProjectPage() {
