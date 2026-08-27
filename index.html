@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>安装 aab 程序包 (不要外传，包含应用签名及密码)</title>
+    <title>安装 aab 程序包</title>
     <!-- https://electronjs.org/docs/tutorial/security#csp-meta-tag -->
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
     <link rel="stylesheet" href="style.css">
@@ -20,6 +20,13 @@
                 <input type="button" value="清除日志" onclick="ClearLog()">
             </div>
         </div>
+
+        <div class="history-row">
+            <label for="aabhistory" style="margin-right: 10px;">候选文件:</label>
+            <select id="aabhistory" name="aabhistory" class="path-select"></select>
+            <input type="button" value="刷新" onclick="RefreshAabCandidates()">
+        </div>
+        <div id="aabdirhint" class="history-dir"></div>
 
         <div id="holder" class="dropify-wrapper" onclick="showSelectAabFile()">
             <div id="message" class="dropify-message">

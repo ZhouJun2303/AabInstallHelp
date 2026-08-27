@@ -140,11 +140,10 @@ if "%SYNC_ASSETS%"=="1" (
       goto fail
     )
   )
-  if exist "config\common.json" (
-    for %%I in ("config\common.json") do if %%~zI GTR 0 (
-      copy /Y "config\common.json" "%INSTALL_DIR%\resources\assets\common.json" >nul
-    )
-  )
+  if exist "%INSTALL_DIR%\resources\assets\common.json" del /f /q "%INSTALL_DIR%\resources\assets\common.json"
+  if exist "%INSTALL_DIR%\resources\assets\release.jks" del /f /q "%INSTALL_DIR%\resources\assets\release.jks"
+  if exist "%INSTALL_DIR%\resources\assets\bundletool-all-0.13.4.jar" del /f /q "%INSTALL_DIR%\resources\assets\bundletool-all-0.13.4.jar"
+  if exist "%INSTALL_DIR%\resources\assets\bundletool-all-1.5.0.jar" del /f /q "%INSTALL_DIR%\resources\assets\bundletool-all-1.5.0.jar"
   echo synced resources\assets
 )
 

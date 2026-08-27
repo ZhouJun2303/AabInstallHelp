@@ -50,67 +50,9 @@ npm run elebuild_mac
 npm run elebuild_win
 ```
 
-### 自定义操作说明
+### 签名说明
 
-由于为了简单方便，直接把签名文件和签名信息内置在了软件中，所以签名文件和信息都是公开的，会出现安装的 应用签名并非你自己公司业务的应用。
+所有 aab 安装时都会使用内置的 Android debug 测试签名（`assets_common/debug.keystore`），不再读取或内置任何正式签名。
 
-
-
-所以如果需要符合自身公司的业务，可以直接修改源码，然后再打包符合自己公司业务的工具软件，然后给到相关的测试同事使用，主要的代码逻辑在 `main.js` 这个文件中：
-
-```
-// aab 文件信息类
-class AabInfo {
-  constructor(pkg_v, vname_v, vcode_v) {
-    this.pkg = pkg_v;
-    this.vname = vname_v;
-    this.vcode = vcode_v;
-  }
-
-  getAppVersionInfo() {
-    return `${this.vname}.${this.vcode}`;
-  }
-
-  /**
-   * 获取签名文件名，放在 assets 目录下
-   */
-  getKeystoreName() {
-    // 可以针对不同应用使用不同的签名文件
-    if (this.pkg == 'com.fireantzhang.aabdemo') {
-      return 'release.jks';
-    }
-    return 'release.jks'
-  }
-
-  /**
-   * 获取签名配置信息
-   */
-  getKeystoreConfig() {
-    if (this.pkg == 'com.fireantzhang.aabdemo') {
-      return new KeystoreConfig('fireantzhang', 'fireantzhang', 'fireantzhang');
-    }
-    return new KeystoreConfig('fireantzhang', 'fireantzhang', 'fireantzhang');
-  }
-
-  /**
-   * 获取启动的 activity，TODO：调整成直接从清单文件中读取，不过逻辑有点复杂，暂时未实现
-   */
-  getAutoStartActivity() {
-    if (this.pkg == 'com.fireantzhang.aabdemo') {
-      return 'com.fireantzhang.aabdemo/com.fireantzhang.aabdemo.MainActivity';
-    }
-
-    return null;
-  }
-}
-
-// 签名节本信息类
-class KeystoreConfig {
-  constructor(ks_pass_v, alias_v, key_pass_v) {
-    this.ks_pass = ks_pass_v;
-    this.alias = alias_v;
-    this.key_pass = key_pass_v;
-  }
-}
-```
+因此本工具只适合本地/测试安装，不能用于覆盖已用正式签名安装的包，也不适合作为上架签名。启动 Activity 会从 aab 清单中解析。
 

@@ -1,20 +1,29 @@
-const { app, BrowserWindow, ipcMain, ipcRenderer, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, ipcRenderer, dialog, nativeImage, clipboard } = require('electron');
 const { Menu } = require('electron');
 const exec = require('child_process').exec;
 const xmlReader = require('xmlreader');
 const path = require('path');
 const readFile = require('fs');
 
-let commonConfig = "";
 let UseDevicesId = "";
+// 最近一次来自渲染进程的 ipc event，供 AabInfo 等无 event 场景回落到 UI
+let lastUiEvent = null;
 // 应用的主窗口
 let mainWindow;
+const EXEC_OPTS = { maxBuffer: 20 * 1024 * 1024 };
+// 所有 aab 统一使用 Android debug 测试签名，避免内置正式签名泄露
+const DEBUG_SIGN = {
+  file: 'debug.keystore',
+  ks_pass: 'android',
+  alias: 'androiddebugkey',
+  key_pass: 'android'
+};
 
 // 创建主窗口
 function createWindow() {
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
-    title: "安装 aab 程序包 (不要外传，包含应用签名及密码)",
+    title: "安装 aab 程序包",
     minHeight: 600,
     minWidth: 800,
     width: 800,
@@ -34,22 +43,6 @@ function createWindow() {
   console.log(`平台信息：` + process.platform);
   console.log('是否是开发环境：' + app.isPackaged);
   console.log(`资源路径：${process.resourcesPath}`)
-
-  commonConfig = LoadConfig();
-}
-
-//读取配置文件
-function LoadConfig() {
-  // 同步读取 JSON 文件
-  let filePath = getConfigPath();
-  try {
-    const data = readFile.readFileSync(filePath, 'utf8');  // 读取文件内容
-    const jsonData = JSON.parse(data);  // 解析 JSON 数据
-    return jsonData;
-  } catch (err) {
-    console.error('读取或解析文件失败:', err);
-    return null;
-  }
 }
 
 
@@ -68,7 +61,7 @@ ipcMain.on('open_file_select', function (event, arg) {
     properties: ['openFile']
   }
 
-  dialog.showOpenDialog(win, options)
+  dialog.showOpenDialog(mainWindow, options)
     .then((res) => {
       if (res.canceled) {
         return
@@ -105,12 +98,52 @@ function UseDevicesIdRefresh(event, arg) {
 }
 
 /**
- * 发送消息到 UI 界面进行展示
- * @param {Electron.IpcMainEvent} event 
+ * 发送消息到 UI 界面进行展示。
+ * 兼容 (event, msg) 以及历史上只传文案的 sendMsgToUI(msg)。
+ * @param {Electron.IpcMainEvent|string} event 
  * @param {*} msg 
  */
 function sendMsgToUI(event, msg) {
-  event.sender.send('on_install_rsp', `[aab 安装]${msg}\n`);
+  if (typeof event === 'string' && (arguments.length < 2 || msg === undefined)) {
+    msg = event;
+    event = lastUiEvent;
+  } else if (event && typeof event === 'object' && event.sender) {
+    lastUiEvent = event;
+  }
+
+  const text = `[aab 安装]${msg}\n`;
+  const targets = [];
+  if (event && event.sender) {
+    targets.push(event.sender);
+  }
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    targets.push(mainWindow.webContents);
+  }
+
+  for (let i = 0; i < targets.length; i++) {
+    const sender = targets[i];
+    try {
+      if (sender.isDestroyed && sender.isDestroyed()) {
+        continue;
+      }
+      sender.send('on_install_rsp', text);
+      return;
+    } catch (err) {
+      console.error('sendMsgToUI failed:', err);
+    }
+  }
+  console.log(text);
+}
+
+function quoteArg(value) {
+  const s = value == null ? '' : String(value);
+  if (s === '') {
+    return '""';
+  }
+  if (!/[ \t"&<>|^()]/.test(s)) {
+    return s;
+  }
+  return '"' + s.replace(/"/g, '""') + '"';
 }
 
 function getAssetsPath() {
@@ -119,8 +152,8 @@ function getAssetsPath() {
 }
 
 function getBundletoolJarPath() {
-  let bundletool_jar_path = `${getJavaPath()} -jar ${getAssetsPath()}/bundletool-all-1.5.0.jar`;
-  return bundletool_jar_path;
+  let jar_path = `${getAssetsPath()}/bundletool-all-1.18.3.jar`;
+  return `${quoteArg(getJavaPath())} -jar ${quoteArg(jar_path)}`;
 }
 
 function getJavaPath() {
@@ -139,20 +172,78 @@ function getInstallTempPath() {
   return install_temp_path;
 }
 
-function getConfigPath() {
-  let config_path = `${getAssetsPath()}/common.json`;
-  return config_path;
+function extractManifestXml(stdout) {
+  if (stdout == null) {
+    return '';
+  }
+  const text = String(stdout);
+  const xmlDecl = text.indexOf('<?xml');
+  if (xmlDecl >= 0) {
+    return text.slice(xmlDecl).trim();
+  }
+  const manifestStart = text.indexOf('<manifest');
+  if (manifestStart >= 0) {
+    return text.slice(manifestStart).trim();
+  }
+  return text.trim();
+}
+
+function resolveAndroidName(pkg, name) {
+  if (name == null || name === '') {
+    return null;
+  }
+  const n = String(name);
+  if (n.startsWith('.')) {
+    return pkg + n;
+  }
+  if (n.indexOf('.') === -1) {
+    return pkg + '.' + n;
+  }
+  return n;
+}
+
+function extractLauncherComponent(manifestXml, pkg) {
+  if (manifestXml == null || pkg == null || pkg === '') {
+    return null;
+  }
+  const xml = String(manifestXml);
+  const blockRe = /<(activity-alias|activity)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/gi;
+  let match;
+  while ((match = blockRe.exec(xml)) !== null) {
+    const attrs = match[2] || '';
+    const body = match[3] || '';
+    const enabled = attrs.match(/android:enabled\s*=\s*["']([^"']+)["']/i);
+    if (enabled && String(enabled[1]).toLowerCase() === 'false') {
+      continue;
+    }
+    const nameMatch = attrs.match(/android:name\s*=\s*["']([^"']+)["']/i);
+    if (!nameMatch) {
+      continue;
+    }
+    const hasMain = /android:name\s*=\s*["']android\.intent\.action\.MAIN["']/.test(body);
+    const hasLauncher = /android:name\s*=\s*["']android\.intent\.category\.LAUNCHER["']/.test(body);
+    if (hasMain && hasLauncher) {
+      return resolveAndroidName(pkg, nameMatch[1]);
+    }
+  }
+  return null;
 }
 
 /**
  * 第一步：解析 aab 文件，用于获取到应用相关的信息
- * 
+ *
  * @param {Electron.IpcMainEvent} event
- * @param {*} aab_file_path 
+ * @param {*} aab_file_path
  */
 function parseAabContent(event, aab_file_path) {
   if (null == aab_file_path || '' == aab_file_path) {
     sendMsgToUI(event, "未选择文件");
+    return;
+  }
+  if (!readFile.existsSync(aab_file_path)) {
+    let errorMsg = `选择的 aab 文件不存在：${aab_file_path}`;
+    sendMsgToUI(event, errorMsg);
+    tipsInstallError(errorMsg);
     return;
   }
   if (UseDevicesId == null || UseDevicesId == "") {
@@ -163,41 +254,60 @@ function parseAabContent(event, aab_file_path) {
   sendMsgToUI(event, `1、正在进行 aab 文件解析：${path.basename(aab_file_path)}`);
 
   let bundletool_jar_path = getBundletoolJarPath();
-  let adb_path = getAdbPath();
 
-  let cmd = `${bundletool_jar_path} dump manifest --adb ${adb_path} --bundle=${aab_file_path}`
+  let cmd = `${bundletool_jar_path} dump manifest --bundle=${quoteArg(aab_file_path)}`;
 
-  let workerProcess = exec(cmd, (err, stdout, stderr) => {
-
-    var aabInfo = new AabInfo("未识别", "未识别", "未识别");
-    if ('' !== stderr) {
-      let errorMsg = `获取 aab manifest 文件信息出错，错误信息：${stderr}`;
-      sendMsgToUI(event, errorMsg);
-    } else {
-      xmlReader.read(stdout, function (errors, response) {
-        if (null !== errors) {
-          let errorMsg = `解析 aab 的清单内容出错：${errors}`;
-          log(errorMsg);
-          sendMsgToUI(event, errorMsg);
-        } else {
-
-          // 获取到应用的包名
-          let app_pkg = response.manifest.attributes().package;
-          // 获取应用的版本名
-          let app_vname = response.manifest.attributes()['android:versionName'];
-          // 获取应用的版本号
-          let app_vcode = response.manifest.attributes()['android:versionCode'];
-
-          aabInfo = new AabInfo(app_pkg, app_vname, app_vcode);
-
-          let aabParseRst = `aab 文件解析结果如下👉：\n应用包名：${aabInfo.pkg}，应用版本信息：${aabInfo.getAppVersionInfo()}\n`;
-
-          log(aabParseRst);
-          sendMsgToUI(event, aabParseRst);
-        }
-      })
+  exec(cmd, EXEC_OPTS, (err, stdout, stderr) => {
+    if (stderr && String(stderr).trim() !== '') {
+      sendMsgToUI(event, `dump manifest 附加输出：${stderr}`);
     }
-    generateSpecFile(event, aab_file_path, aabInfo);
+
+    const manifestXml = extractManifestXml(stdout);
+    if (!manifestXml) {
+      let errorMsg = `获取 aab manifest 文件信息出错，错误信息：${err || stderr || '输出为空'}`;
+      sendMsgToUI(event, errorMsg);
+      tipsInstallError(errorMsg);
+      return;
+    }
+
+    xmlReader.read(manifestXml, function (errors, response) {
+      if (null !== errors) {
+        let errorMsg = `解析 aab 的清单内容出错：${errors}`;
+        log(errorMsg);
+        sendMsgToUI(event, errorMsg);
+        tipsInstallError(errorMsg);
+        return;
+      }
+
+      try {
+        let attrs = response.manifest.attributes();
+        let app_pkg = attrs.package;
+        let app_vname = attrs['android:versionName'];
+        let app_vcode = attrs['android:versionCode'];
+
+        if (!app_pkg) {
+          let errorMsg = '解析 aab 的清单内容出错：未读取到包名';
+          sendMsgToUI(event, errorMsg);
+          tipsInstallError(errorMsg);
+          return;
+        }
+
+        let launcher = extractLauncherComponent(manifestXml, app_pkg);
+        let aabInfo = new AabInfo(app_pkg, app_vname, app_vcode, launcher);
+        let aabParseRst = `aab 文件解析结果如下👉：\n应用包名：${aabInfo.pkg}，应用版本信息：${aabInfo.getAppVersionInfo()}`;
+        if (launcher) {
+          aabParseRst += `，启动 Activity：${launcher}`;
+        }
+        aabParseRst += `\n`;
+        log(aabParseRst);
+        sendMsgToUI(event, aabParseRst);
+        generateSpecFile(event, aab_file_path, aabInfo);
+      } catch (parseErr) {
+        let errorMsg = `解析 aab 的清单内容出错：${parseErr}`;
+        sendMsgToUI(event, errorMsg);
+        tipsInstallError(errorMsg);
+      }
+    });
   });
 }
 
@@ -221,9 +331,9 @@ function generateSpecFile(event, aab_file_path, aabInfo) {
   let device_spec_file = `${install_temp_path}/device-spec.json`;
 
   // 1、生成连接设备对应的 spec 文件命令
-  let gen_device_spec_cmd = `${bundletool_jar_path} get-device-spec --adb ${adb_path} --output=${device_spec_file} --overwrite --device-id=${UseDevicesId}`;
+  let gen_device_spec_cmd = `${bundletool_jar_path} get-device-spec --adb ${quoteArg(adb_path)} --output=${quoteArg(device_spec_file)} --overwrite --device-id=${quoteArg(UseDevicesId)}`;
 
-  let workerProcess = exec(gen_device_spec_cmd, (errE, stdout) => {
+  exec(gen_device_spec_cmd, EXEC_OPTS, (errE, stdout) => {
     if (null !== errE) {
       let errorMsg = `生成设备描述文件出错，错误信息：${errE}`;
       sendMsgToUI(event, errorMsg);
@@ -249,6 +359,12 @@ function showDeviceSpecFile(event, aab_file_path, aabInfo, device_spec_file) {
   sendMsgToUI(event, `3、读取设备描述信息`);
 
   readFile.readFile(device_spec_file, 'utf-8', function (error, content) {
+    if (error) {
+      let errorMsg = `读取设备描述文件失败：${error}`;
+      sendMsgToUI(event, errorMsg);
+      tipsInstallError(errorMsg);
+      return;
+    }
 
     log(content);
     sendMsgToUI(event, `设备描述信息读取成功，内容如下👉：\n${content}\n`);
@@ -265,30 +381,23 @@ function showDeviceSpecFile(event, aab_file_path, aabInfo, device_spec_file) {
  * @param {*} device_spec_file 
  */
 function buildApksFile(event, aab_file_path, aabInfo, device_spec_file) {
-  sendMsgToUI(event, `4、正在使用设备描述信息生成 apks 文件`);
+  sendMsgToUI(event, `4、正在使用 debug 测试签名生成 apks 文件`);
+
   let install_temp_path = getInstallTempPath();
 
   // bundletool jar 包路径
   let bundletool_jar_path = getBundletoolJarPath();
-  // aab 路径
-  let adb_path = getAdbPath();
 
   // apks 文件路径
   let apks_file = `${install_temp_path}/app_bundle.apks`;
-  // ks 签名文件路径
-  let ks_file = `${getAssetsPath()}/${aabInfo.getKeystoreName()}`;
+  let ks_file = `${getAssetsPath()}/${DEBUG_SIGN.file}`;
 
-  log(`拿到的签名文件是：${ks_file}`);
-
-  // 获取签名信息
-  let keyStoreConfig = aabInfo.getKeystoreConfig();
-
-  log(`获取到的签名信息：ks_pass=${keyStoreConfig.ks_pass}, alias=${keyStoreConfig.alias}, key_pass=${keyStoreConfig.key_pass}`);
+  log(`使用 debug 测试签名：${ks_file}`);
 
   // 根据 spec 文件生成 apks 文件
-  let gen_apks_cmd = `${bundletool_jar_path} build-apks --bundle=${aab_file_path} --device-spec=${device_spec_file} --output=${apks_file} --ks=${ks_file} --ks-pass=pass:${keyStoreConfig.ks_pass} --ks-key-alias=${keyStoreConfig.alias} --key-pass=pass:${keyStoreConfig.key_pass} --overwrite`;
+  let gen_apks_cmd = `${bundletool_jar_path} build-apks --bundle=${quoteArg(aab_file_path)} --device-spec=${quoteArg(device_spec_file)} --output=${quoteArg(apks_file)} --ks=${quoteArg(ks_file)} --ks-pass=pass:${DEBUG_SIGN.ks_pass} --ks-key-alias=${quoteArg(DEBUG_SIGN.alias)} --key-pass=pass:${DEBUG_SIGN.key_pass} --overwrite`;
 
-  let workerProcess = exec(gen_apks_cmd, (errE, stdout) => {
+  exec(gen_apks_cmd, EXEC_OPTS, (errE, stdout) => {
     if (null !== errE) {
       let errorMsg = `生成 apks 文件出错，错误信息：${errE}`;
       sendMsgToUI(event, errorMsg);
@@ -303,14 +412,21 @@ function buildApksFile(event, aab_file_path, aabInfo, device_spec_file) {
   });
 }
 
+function isSignatureMismatchError(err) {
+  const text = err == null ? '' : String(err);
+  return text.indexOf('INSTALL_FAILED_UPDATE_INCOMPATIBLE') >= 0
+    || text.indexOf('signatures do not match') >= 0;
+}
+
 /**
  * 第五步：将 apks 文件安装到设备中
  * 
  * @param {Electron.IpcMainEvent} event 
  * @param {AabInfo} aabInfo 
  * @param {*} apks_file 
+ * @param {Boolean} retriedUninstall
  */
-function installApkToDevice(event, aabInfo, apks_file) {
+function installApkToDevice(event, aabInfo, apks_file, retriedUninstall) {
   sendMsgToUI(event, `5、正在将 apks 安装到设备中...`);
 
   // bundletool jar 包路径
@@ -319,10 +435,14 @@ function installApkToDevice(event, aabInfo, apks_file) {
   let adb_path = getAdbPath();
 
   // 3、安装 apks 到连接设备
-  let install_apks_cmd = `${bundletool_jar_path} install-apks  --adb ${adb_path} --apks=${apks_file} --device-id=${UseDevicesId}`;
+  let install_apks_cmd = `${bundletool_jar_path} install-apks --adb ${quoteArg(adb_path)} --apks=${quoteArg(apks_file)} --device-id=${quoteArg(UseDevicesId)}`;
 
-  let workerProcess = exec(install_apks_cmd, (errE, stdout) => {
+  exec(install_apks_cmd, EXEC_OPTS, (errE, stdout) => {
     if (null !== errE) {
+      if (!retriedUninstall && isSignatureMismatchError(errE)) {
+        confirmUninstallThenRetry(event, aabInfo, apks_file, errE);
+        return;
+      }
       let errorMsg = `安装 apks 文件到设备时出错，错误信息：${errE}`;
       sendMsgToUI(event, errorMsg);
       tipsInstallError(errorMsg);
@@ -331,6 +451,60 @@ function installApkToDevice(event, aabInfo, apks_file) {
 
     sendMsgToUI(event, `已成功将 aab 程序包安装到设备中\n`);
     autoStartApplication(event, aabInfo);
+  });
+}
+
+function confirmUninstallThenRetry(event, aabInfo, apks_file, installErr) {
+  const pkg = aabInfo.pkg;
+  const originalErr = installErr == null ? '' : String(installErr);
+  sendMsgToUI(event, `设备上已安装的 ${pkg} 签名与当前 debug 测试签名不一致，无法覆盖安装`);
+
+  showAppMessageBox({
+    type: 'warning',
+    title: '签名不一致',
+    icon: nativeImage.createEmpty(),
+    message: `设备上的 ${pkg} 签名与当前 debug 测试签名不一致，无法覆盖安装。`,
+    detail: '继续将先卸载旧应用（应用数据会丢失），再重新安装。',
+    buttons: ['卸载并重装', '复制错误信息', '取消'],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true
+  }).then(function (index) {
+    if (index === 1) {
+      if (originalErr) {
+        clipboard.writeText(originalErr);
+      }
+      sendMsgToUI(event, '已复制原始错误信息');
+      return;
+    }
+    if (index !== 0) {
+      sendMsgToUI(event, '已取消安装');
+      return;
+    }
+    uninstallThenRetryInstall(event, aabInfo, apks_file);
+  }).catch(function (err) {
+    console.error('confirmUninstallThenRetry failed:', err);
+    tipsInstallError(originalErr || String(err));
+  });
+}
+
+function uninstallThenRetryInstall(event, aabInfo, apks_file) {
+  const pkg = aabInfo.pkg;
+  const adb_path = getAdbPath();
+  const uninstall_cmd = `${quoteArg(adb_path)} -s ${quoteArg(UseDevicesId)} uninstall ${quoteArg(pkg)}`;
+
+  sendMsgToUI(event, `正在卸载设备上的旧应用：${pkg}`);
+  exec(uninstall_cmd, EXEC_OPTS, (errE, stdout, stderr) => {
+    const out = `${stdout || ''}\n${stderr || ''}`;
+    if (!/Success/i.test(out)) {
+      let errorMsg = `卸载旧应用失败：${errE || out.trim() || '未知错误'}`;
+      sendMsgToUI(event, errorMsg);
+      tipsInstallError(errorMsg);
+      return;
+    }
+
+    sendMsgToUI(event, `旧应用已卸载，开始重新安装`);
+    installApkToDevice(event, aabInfo, apks_file, true);
   });
 }
 
@@ -354,9 +528,9 @@ function autoStartApplication(event, aabInfo) {
   let adb_path = getAdbPath();
 
   // 4、启动刚才安装好的应用
-  let start_app_cmd = `${adb_path} shell am start -n "${aabInfo.getAutoStartActivity()}" -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --device-id=${UseDevicesId}`;
+  let start_app_cmd = `${quoteArg(adb_path)} -s ${quoteArg(UseDevicesId)} shell am start -n ${quoteArg(autoStartActivity)} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER`;
 
-  let workerProcess = exec(start_app_cmd, (errE, stdout) => {
+  exec(start_app_cmd, EXEC_OPTS, (errE, stdout) => {
     if (null !== errE) {
       sendMsgToUI(event, `尝试自动启动应用出错，错误信息：${errE}`);
       tipsInstallFinish(false, aabInfo);
@@ -373,15 +547,35 @@ function autoStartApplication(event, aabInfo) {
  * 
  * @param {*} msg 
  */
+function showAppMessageBox(options) {
+  const boxPromise = (mainWindow && !mainWindow.isDestroyed())
+    ? dialog.showMessageBox(mainWindow, options)
+    : dialog.showMessageBox(options);
+  return Promise.resolve(boxPromise).then(function (result) {
+    return result && typeof result.response === 'number' ? result.response : result;
+  });
+}
+
 function tipsInstallError(msg) {
+  const text = msg == null ? '' : String(msg);
   var options = {
     type: 'error',
     title: '安装出错',
     icon: nativeImage.createEmpty(),
-    message: msg
-  }
+    message: text,
+    buttons: ['复制错误信息', '确定'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true
+  };
 
-  dialog.showMessageBox(options);
+  showAppMessageBox(options).then(function (index) {
+    if (index === 0 && text) {
+      clipboard.writeText(text);
+    }
+  }).catch(function (err) {
+    console.error('tipsInstallError failed:', err);
+  });
 }
 
 /**
@@ -427,9 +621,9 @@ function log(log_str) {
 
 function RefreshConnectDevice(event, arg) {
   let adb_path = getAdbPath();
-  let refreshconnectdevice_cmd = `${adb_path} devices -l`;
+  let refreshconnectdevice_cmd = `${quoteArg(adb_path)} devices -l`;
 
-  let workerProcess = exec(refreshconnectdevice_cmd, (errE, stdout) => {
+  exec(refreshconnectdevice_cmd, EXEC_OPTS, (errE, stdout) => {
     if (null !== errE) {
       sendMsgToUI(event, `RefreshConnectDevice，错误信息：${errE}`);
       return;
@@ -477,62 +671,22 @@ function parseDevices(event, output) {
 
 // aab 文件信息类
 class AabInfo {
-  constructor(pkg_v, vname_v, vcode_v) {
+  constructor(pkg_v, vname_v, vcode_v, launcher_v) {
     this.pkg = pkg_v;
     this.vname = vname_v;
     this.vcode = vcode_v;
+    this.launcher = launcher_v || null;
   }
 
   getAppVersionInfo() {
     return `${this.vname}.${this.vcode}`;
   }
 
-  /**
-   * 获取签名文件名，放在 assets 目录下
-   */
-  getKeystoreName() {
-    if (null != commonConfig) {
-      if (commonConfig[this.pkg] != null) {
-        return commonConfig[this.pkg].keyPath
-      }
-    }
-    sendMsgToUI("未找到签名文件位置 请检查配置：" + this.pkg);
-    return 'release.jks'
-  }
-
-  /**
-   * 获取签名配置信息
-   */
-  getKeystoreConfig() {
-    if (null != commonConfig) {
-      if (commonConfig[this.pkg] != null) {
-        return new KeystoreConfig(commonConfig[this.pkg].storePassword, commonConfig[this.pkg].keyAlias, commonConfig[this.pkg].keyPassword);
-      }
-    }
-    sendMsgToUI("未找到签名配置信息 请检查配置：" + this.pkg);
-    return new KeystoreConfig('fireantzhang', 'fireantzhang', 'fireantzhang');
-  }
-
-  /**
-   * 获取启动的 activity，TODO：调整成直接从清单文件中读取，不过逻辑有点复杂，暂时未实现
-   */
   getAutoStartActivity() {
-    if (null != commonConfig) {
-      if (commonConfig[this.pkg] != null) {
-        return this.pkg + "/" + commonConfig[this.pkg].StartActivity;
-      }
+    if (this.launcher) {
+      return this.pkg + '/' + this.launcher;
     }
-    sendMsgToUI("未找到启动的 activity  请检查配置：" + this.pkg);
     return null;
-  }
-}
-
-// 签名节本信息类
-class KeystoreConfig {
-  constructor(ks_pass_v, alias_v, key_pass_v) {
-    this.ks_pass = ks_pass_v;
-    this.alias = alias_v;
-    this.key_pass = key_pass_v;
   }
 }
 

@@ -44,5 +44,9 @@ holder.ondrop = (e) => {
 
 function setMessageInitStatus() {
     holder.className = "dropify-wrapper";
+    if (window.aabFilePath) {
+        message.innerHTML = "已选择文件：" + window.aabFilePath + "<br><br>";
+        return;
+    }
     message.innerHTML = "点击或将文件拖拽到此区域处理(aab 格式的安装包)";
 }
