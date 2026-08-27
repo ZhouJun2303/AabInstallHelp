@@ -11,6 +11,7 @@ dist/
 plugins-dist/
 release/
 assets/
+.pack_staging/
 installed-plugins/
 node_modules/
 *.compiled.*

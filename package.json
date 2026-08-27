@@ -12,7 +12,8 @@
     "pre_asset_win": "rmdir /s/q .\\assets && mkdir .\\assets && copy .\\assets_common .\\assets && xcopy .\\bin_win .\\assets /S/Y && xcopy .\\config .\\assets /S/Y",
     "elepack": "electron-packager . --overwrite",
     "elebuild_mac": "npm run pre_asset_mac && electron-builder",
-    "elebuild_win": "npm run pre_asset_win && electron-builder"
+    "elebuild_win": "npm run pre_asset_win && electron-builder",
+    "pack_and_update": "pack_and_update.bat"
   },
   "keywords": [
     "start",
