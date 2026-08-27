@@ -48,7 +48,12 @@
       "asar": false,
       "category": "aab install help tool",
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "resources/icon.png"
     },
