@@ -104,16 +104,25 @@ class InstallService : Service() {
 
             InstallCoordinator.step(InstallStep.DeviceSpec)
             log("2、生成本机设备描述文件")
-            val spec = File(work, "device-spec.json")
-            withContext(Dispatchers.IO) { DeviceSpecFactory.write(this@InstallService, spec) }
-            log("设备描述：${spec.readText().take(400)}")
+            val specFile = File(work, "device-spec.json")
+            val spec = withContext(Dispatchers.IO) {
+                DeviceSpecFactory.write(this@InstallService, specFile, aab)
+            }
+            if (spec.aabAbis.isEmpty()) {
+                log("AAB 未包含 native 库，设备描述使用主 ABI：${spec.chosenAbi}")
+            } else {
+                log(
+                    "AAB 包含 ABI：${spec.aabAbis.joinToString()}，本机偏好：${spec.deviceAbis.joinToString()}，本次选用：${spec.chosenAbi}"
+                )
+            }
+            log("设备描述：${spec.file.readText().take(400)}")
 
             InstallCoordinator.step(InstallStep.BuildApks)
             log("4、正在使用 debug 测试签名生成 apks")
             val runtime = withContext(Dispatchers.IO) { RuntimeAssets.ensure(this@InstallService) }
             val apks = File(work, "app_bundle.apks")
             withContext(Dispatchers.IO) {
-                BundletoolConverter.buildApks(aab, spec, apks, runtime) { line ->
+                BundletoolConverter.buildApks(aab, spec.file, apks, runtime) { line ->
                     InstallCoordinator.log(line)
                 }
             }
@@ -160,9 +169,10 @@ class InstallService : Service() {
             if (InstallCoordinator.cancelled) {
                 InstallCoordinator.finished(success = false, message = "已取消")
             } else {
-                log("失败：${t.message}")
+                val message = if (MemoryGuard.isOom(t)) MemoryGuard.OOM_MESSAGE else (t.message ?: "安装失败")
+                log("失败：$message")
                 log(t.stackTraceToString())
-                InstallCoordinator.finished(success = false, message = t.message ?: "安装失败")
+                InstallCoordinator.finished(success = false, message = message)
             }
         } finally {
             try {

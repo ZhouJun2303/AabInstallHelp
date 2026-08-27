@@ -36,20 +36,29 @@ object BundletoolConverter {
         }
         outputApks.parentFile?.mkdirs()
         log("使用 debug 测试签名生成 apks")
-        val signing = loadDebugSigning(runtime)
-        val command = BuildApksCommand.builder()
-            .setBundlePath(aab.toPath())
-            .setOutputFile(outputApks.toPath())
-            .setOverwriteOutput(true)
-            .setDeviceSpec(specFile.toPath())
-            .setAapt2Command(Aapt2Command.createFromExecutablePath(runtime.aapt2.toPath()))
-            .setSigningConfiguration(signing)
-            .build()
-        command.execute()
-        if (!outputApks.exists() || outputApks.length() == 0L) {
-            throw IllegalStateException("未生成 apks 文件")
+        log(MemoryGuard.heapSummary(aab.length()))
+        try {
+            val signing = loadDebugSigning(runtime)
+            val command = BuildApksCommand.builder()
+                .setBundlePath(aab.toPath())
+                .setOutputFile(outputApks.toPath())
+                .setOverwriteOutput(true)
+                .setDeviceSpec(specFile.toPath())
+                .setAapt2Command(Aapt2Command.createFromExecutablePath(runtime.aapt2.toPath()))
+                .setSigningConfiguration(signing)
+                .build()
+            command.execute()
+            if (!outputApks.exists() || outputApks.length() == 0L) {
+                throw IllegalStateException("未生成 apks 文件")
+            }
+            log("生成 apks 成功：${outputApks.absolutePath}")
+        } catch (t: Throwable) {
+            if (MemoryGuard.isOom(t)) {
+                log(MemoryGuard.heapSummary(aab.length()))
+                throw IllegalStateException(MemoryGuard.OOM_MESSAGE, t)
+            }
+            throw t
         }
-        log("生成 apks 成功：${outputApks.absolutePath}")
     }
 
     private fun loadDebugSigning(runtime: RuntimeAssets.Paths): SigningConfiguration {

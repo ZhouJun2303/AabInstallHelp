@@ -11,8 +11,15 @@ import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 
+data class DeviceSpecWriteResult(
+    val file: File,
+    val deviceAbis: List<String>,
+    val aabAbis: Set<String>,
+    val chosenAbi: String
+)
+
 object DeviceSpecFactory {
-    fun write(context: Context, dest: File): File {
+    fun write(context: Context, dest: File, aab: File): DeviceSpecWriteResult {
         val metrics: DisplayMetrics = context.resources.displayMetrics
         val locales = linkedSetOf<String>()
         locales.add(Locale.getDefault().toLanguageTag())
@@ -30,8 +37,14 @@ object DeviceSpecFactory {
             }
         }
 
-        val abis = JSONArray()
-        Build.SUPPORTED_ABIS?.forEach { abis.put(it) }
+        val deviceAbis = Build.SUPPORTED_ABIS?.toList().orEmpty()
+        val aabAbis = try {
+            AbiSelector.detectAbis(aab)
+        } catch (_: Throwable) {
+            emptySet()
+        }
+        val chosenAbi = AbiSelector.pickPreferred(deviceAbis, aabAbis)
+        val abis = JSONArray().put(chosenAbi)
 
         val json = JSONObject()
             .put("supportedAbis", abis)
@@ -43,7 +56,12 @@ object DeviceSpecFactory {
 
         dest.parentFile?.mkdirs()
         dest.writeText(json.toString(2))
-        return dest
+        return DeviceSpecWriteResult(
+            file = dest,
+            deviceAbis = deviceAbis,
+            aabAbis = aabAbis,
+            chosenAbi = chosenAbi
+        )
     }
 
     private fun queryGlExtensions(): List<String> {

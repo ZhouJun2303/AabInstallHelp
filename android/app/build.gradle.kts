@@ -184,4 +184,6 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java-util:3.25.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation("junit:junit:4.13.2")
 }
