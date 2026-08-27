@@ -10,7 +10,7 @@ packages/
   SHA256SUMS.txt
 ```
 
-版本号来自根目录 `package.json`。`pack_all.bat` 只按当前版本拷贝，不改版本。发 GitHub Release 时由 `publish_github_release.bat` 自增后再打包。
+版本号来自根目录 `package.json`。`pack_all.bat` 只按当前版本拷贝，并删掉同目录里其他版本的文件，不改版本。发 GitHub Release 时由 `publish_github_release.bat` 自增后再打包，且只上传当前版本。
 
 生成本目录：
 

@@ -31,7 +31,15 @@
         <div class="banner" id="banner">
             安装结果使用 Android debug 测试签名，无法覆盖正式签名应用，也不能用于上架。
         </div>
-        <div id="updatemsg" class="update-msg hidden"></div>
+        <div id="updatepanel" class="update-panel hidden">
+            <div id="updatemsg" class="update-msg"></div>
+            <div id="updateprogresswrap" class="update-progress-wrap hidden">
+                <div class="update-progress-track">
+                    <div id="updateprogressbar" class="update-progress-bar"></div>
+                </div>
+                <div id="updateprogresslabel" class="update-progress-label"></div>
+            </div>
+        </div>
 
         <section class="card">
             <div class="card-title">设备</div>

@@ -241,6 +241,8 @@ function initAabHistory() {
 }
 
 window.installBusy = false;
+window.updateBusy = false;
+const updateUtil = require('./update_util');
 
 function setStateChip(kind, text) {
   var chip = document.getElementById('statechip');
@@ -255,12 +257,12 @@ function updateActionState() {
   var device = document.getElementById('connectdevice');
   var hasFile = isUsableAabFile(window.aabFilePath);
   var hasDevice = !!(device && device.value);
-  var idle = !window.installBusy;
+  var idle = !window.installBusy && !window.updateBusy;
   if (installBtn) {
     installBtn.disabled = !(idle && hasFile && hasDevice);
   }
   if (updateBtn) {
-    updateBtn.disabled = !idle;
+    updateBtn.disabled = !idle || window.updateBusy;
   }
 }
 
@@ -298,28 +300,110 @@ ipcRenderer.on('on_app_info', function (event, info) {
   }
 });
 
+function showUpdatePanel(text) {
+  var panel = document.getElementById('updatepanel');
+  var msg = document.getElementById('updatemsg');
+  if (panel) panel.classList.remove('hidden');
+  if (msg) msg.textContent = text || '';
+}
+
+function hideUpdateProgress() {
+  var wrap = document.getElementById('updateprogresswrap');
+  var bar = document.getElementById('updateprogressbar');
+  if (wrap) wrap.classList.add('hidden');
+  if (bar) {
+    bar.classList.remove('indeterminate');
+    bar.style.width = '0%';
+  }
+}
+
+function setUpdateProgress(payload) {
+  var wrap = document.getElementById('updateprogresswrap');
+  var bar = document.getElementById('updateprogressbar');
+  var label = document.getElementById('updateprogresslabel');
+  if (!wrap || !bar) return;
+  wrap.classList.remove('hidden');
+  if (payload && payload.message) {
+    showUpdatePanel(payload.message);
+  }
+  var pct = payload && typeof payload.percent === 'number' ? payload.percent : -1;
+  if (pct >= 0) {
+    bar.classList.remove('indeterminate');
+    bar.style.width = pct + '%';
+    var sizeText = '';
+    if (payload.total > 0) {
+      sizeText = updateUtil.formatByteSize(payload.received) + ' / ' + updateUtil.formatByteSize(payload.total);
+    } else if (payload.received > 0) {
+      sizeText = updateUtil.formatByteSize(payload.received);
+    }
+    if (label) label.textContent = pct + '%' + (sizeText ? ' · ' + sizeText : '');
+  } else {
+    bar.classList.add('indeterminate');
+    bar.style.width = '';
+    if (label) {
+      label.textContent = payload && payload.received > 0
+        ? updateUtil.formatByteSize(payload.received)
+        : (payload && payload.phase === 'verify' ? '校验中…' : '下载中…');
+    }
+  }
+}
+
 ipcRenderer.on('on_update_result', function (event, result) {
   var chip = document.getElementById('updatechip');
-  var msg = document.getElementById('updatemsg');
   if (!result) return;
+  hideUpdateProgress();
   if (result.error) {
-    chip.classList.add('hidden');
-    msg.classList.remove('hidden');
-    msg.textContent = result.error;
+    if (chip) chip.classList.add('hidden');
+    showUpdatePanel(result.error);
     return;
   }
   if (result.newer) {
-    chip.classList.remove('hidden');
-    msg.classList.remove('hidden');
-    msg.textContent = '发现 ' + result.tag + '。确认后才会下载安装。';
+    if (chip) {
+      chip.classList.remove('hidden');
+      chip.textContent = '有新版本';
+    }
+    showUpdatePanel('发现 ' + result.tag + '。确认后才会下载安装。');
     var go = confirm('发现新版本 ' + result.tag + '\n\n确认后下载并启动安装包，当前程序会退出。');
     if (go) {
+      window.updateBusy = true;
+      updateActionState();
+      if (chip) chip.textContent = '下载中';
+      setUpdateProgress({
+        phase: 'download',
+        received: 0,
+        total: result.size || 0,
+        percent: result.size ? 0 : -1,
+        message: '正在下载 ' + result.tag
+      });
       ipcRenderer.send('download_update', result);
     }
   } else {
-    chip.classList.add('hidden');
-    msg.classList.remove('hidden');
-    msg.textContent = result.message || ('已是最新 ' + (result.tag || ''));
+    if (chip) chip.classList.add('hidden');
+    showUpdatePanel(result.message || ('已是最新 ' + (result.tag || '')));
+  }
+});
+
+ipcRenderer.on('on_update_progress', function (event, payload) {
+  window.updateBusy = true;
+  updateActionState();
+  setUpdateProgress(payload || {});
+});
+
+ipcRenderer.on('on_update_done', function (event, result) {
+  window.updateBusy = false;
+  updateActionState();
+  var chip = document.getElementById('updatechip');
+  if (result && result.ok) {
+    hideUpdateProgress();
+    showUpdatePanel(result.message || '校验通过，启动安装包');
+    if (chip) {
+      chip.classList.remove('hidden');
+      chip.textContent = '安装中';
+    }
+  } else {
+    hideUpdateProgress();
+    showUpdatePanel((result && result.error) || '更新失败');
+    if (chip) chip.classList.add('hidden');
   }
 });
 
@@ -425,7 +509,7 @@ ClearLog = function () {
 }
 
 CheckUpdate = function () {
-  if (window.installBusy) return;
+  if (window.installBusy || window.updateBusy) return;
   ipcRenderer.send('check_update');
 }
 

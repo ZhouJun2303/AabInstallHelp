@@ -14,6 +14,7 @@ const APP_FILES = [
   'process.js',
   'handle_drag.js',
   'style.css',
+  'update_util.js',
   'package.json'
 ];
 

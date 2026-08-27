@@ -40,6 +40,9 @@ data class UiModel(
     val updateMessage: String = "",
     val checkingUpdate: Boolean = false,
     val downloadingUpdate: Boolean = false,
+    val updateReceived: Long = 0L,
+    val updateTotal: Long = 0L,
+    val updateProgress: Float? = null,
     val installPageVisible: Boolean = false
 ) {
     val permissionsReady: Boolean get() = hasStorage && hasInstall
@@ -218,17 +221,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun checkUpdate(silent: Boolean = false) {
-        if (install.value.busy) return
+        if (install.value.busy || _ui.value.downloadingUpdate) return
         viewModelScope.launch {
             _ui.update { it.copy(checkingUpdate = true, updateMessage = if (silent) it.updateMessage else "正在检查…") }
-            val info = withContext(Dispatchers.IO) {
-                runCatching { UpdateChecker.check() }.getOrNull()
+            val result = withContext(Dispatchers.IO) {
+                runCatching { UpdateChecker.check() }
             }
+            val info = result.getOrNull()
             _ui.update {
                 it.copy(
                     checkingUpdate = false,
-                    update = info,
+                    update = if (result.isFailure && silent) it.update else info,
                     updateMessage = when {
+                        result.isFailure && !silent -> result.exceptionOrNull()?.message ?: "检查更新失败"
                         info != null -> "有新版本 ${info.tag}"
                         silent -> it.updateMessage
                         else -> "已是最新 ${BuildConfig.VERSION_NAME}"
@@ -244,11 +249,47 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val info = _ui.value.update ?: return
         if (install.value.busy || _ui.value.downloadingUpdate) return
         viewModelScope.launch {
-            _ui.update { it.copy(downloadingUpdate = true, updateMessage = "正在下载 ${info.tag}") }
+            _ui.update {
+                it.copy(
+                    downloadingUpdate = true,
+                    updateReceived = 0L,
+                    updateTotal = 0L,
+                    updateProgress = null,
+                    updateMessage = "正在下载 ${info.tag}"
+                )
+            }
             try {
                 val dest = File(getApplication<Application>().cacheDir, "update.apk")
                 withContext(Dispatchers.IO) {
-                    UpdateChecker.download(info.downloadUrl, dest) { _, _ -> }
+                    var lastEmit = 0L
+                    var lastPct = -2
+                    UpdateChecker.download(info.downloadUrl, dest) { copied, total ->
+                        val now = System.currentTimeMillis()
+                        val pct = if (total > 0) ((copied * 100) / total).toInt() else -1
+                        if (copied != total && pct == lastPct && now - lastEmit < 150) return@download
+                        lastEmit = now
+                        lastPct = pct
+                        val sizeText = if (total > 0) {
+                            "${UpdateChecker.formatBytes(copied)} / ${UpdateChecker.formatBytes(total)}"
+                        } else {
+                            UpdateChecker.formatBytes(copied)
+                        }
+                        _ui.update { state ->
+                            state.copy(
+                                downloadingUpdate = true,
+                                updateReceived = copied,
+                                updateTotal = total,
+                                updateProgress = if (total > 0) copied.toFloat() / total.toFloat() else null,
+                                updateMessage = "正在下载 ${info.tag}  $sizeText"
+                            )
+                        }
+                    }
+                    _ui.update {
+                        it.copy(
+                            updateProgress = if (it.updateTotal > 0) 1f else null,
+                            updateMessage = "正在校验 SHA256…"
+                        )
+                    }
                     if (!info.sha256.isNullOrBlank()) {
                         val actual = UpdateChecker.sha256(dest)
                         if (!actual.equals(info.sha256, ignoreCase = true)) {
@@ -259,9 +300,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 SplitApkInstaller.createSession(getApplication(), listOf(dest))
-                _ui.update { it.copy(downloadingUpdate = false, updateMessage = "已提交安装，请在系统对话框确认") }
+                _ui.update {
+                    it.copy(
+                        downloadingUpdate = false,
+                        updateProgress = 1f,
+                        updateMessage = "已提交安装，请在系统对话框确认"
+                    )
+                }
             } catch (t: Throwable) {
-                _ui.update { it.copy(downloadingUpdate = false, updateMessage = t.message ?: "更新失败") }
+                _ui.update {
+                    it.copy(
+                        downloadingUpdate = false,
+                        updateProgress = null,
+                        updateMessage = t.message ?: "更新失败"
+                    )
+                }
             }
         }
     }

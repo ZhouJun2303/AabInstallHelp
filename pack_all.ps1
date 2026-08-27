@@ -34,6 +34,28 @@ foreach ($d in @($pkgRoot, $winDir, $androidDir, $macDir)) {
     New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
 
+function Clear-PackageDir([string] $Dir) {
+    Get-ChildItem -Path $Dir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne ".gitkeep" } |
+        ForEach-Object {
+            Write-Host "removed $($_.Name)"
+            Remove-Item -Force $_.FullName
+        }
+}
+
+function Remove-StalePackageFiles([string] $Dir, [string] $KeepVersion) {
+    Get-ChildItem -Path $Dir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne ".gitkeep" -and $_.Name -notlike "*$KeepVersion*" } |
+        ForEach-Object {
+            Write-Host "removed stale $($_.Name)"
+            Remove-Item -Force $_.FullName
+        }
+}
+
+foreach ($d in @($winDir, $androidDir, $macDir)) {
+    Remove-StalePackageFiles $d $version
+}
+
 Write-Host "========== AabInstalllHelp pack_all $version =========="
 Write-Host "Final output: $pkgRoot"
 Write-Host ""
@@ -58,6 +80,7 @@ if ($DoWin) {
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if (-not $nsis) { Fail "Windows installer exe not found under release/" }
+    Clear-PackageDir $winDir
     $winName = "AabInstalllHelp-$version-windows-x64.exe"
     Copy-Item -Force $nsis.FullName (Join-Path $winDir $winName)
     Write-Host "copied packages\windows\$winName"
@@ -104,6 +127,7 @@ if ($DoAndroid) {
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if (-not $apk) { Fail "Android APK not found" }
+    Clear-PackageDir $androidDir
     $apkName = "AabInstalllHelp-$version-android.apk"
     Copy-Item -Force $apk.FullName (Join-Path $androidDir $apkName)
     Write-Host "copied packages\android\$apkName"
@@ -113,6 +137,7 @@ $dmg = Get-ChildItem -Path (Join-Path $PSScriptRoot "release") -Filter "*.dmg" -
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 if ($dmg) {
+    Clear-PackageDir $macDir
     $macName = "AabInstalllHelp-$version-macos.dmg"
     Copy-Item -Force $dmg.FullName (Join-Path $macDir $macName)
     Write-Host "copied packages\macos\$macName"
@@ -121,7 +146,7 @@ if ($dmg) {
 $sums = Join-Path $pkgRoot "SHA256SUMS.txt"
 if (Test-Path $sums) { Remove-Item -Force $sums }
 Get-ChildItem -Path $winDir, $androidDir, $macDir -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -ne ".gitkeep" } |
+    Where-Object { $_.Name -ne ".gitkeep" -and $_.Name -like "*$version*" } |
     ForEach-Object {
         $rel = $_.FullName.Substring($pkgRoot.Length).TrimStart("\", "/")
         $rel = $rel -replace "\\", "/"

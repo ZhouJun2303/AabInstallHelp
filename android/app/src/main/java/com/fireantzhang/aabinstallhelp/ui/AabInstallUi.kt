@@ -120,7 +120,10 @@ fun AabInstallAppScreen(vm: AppViewModel) {
                                 IconButton(onClick = { vm.openProjectPage() }) {
                                     Icon(AboutIcon, contentDescription = "关于")
                                 }
-                                IconButton(onClick = { vm.checkUpdate() }, enabled = !install.busy && !ui.checkingUpdate) {
+                                IconButton(
+                                    onClick = { vm.checkUpdate() },
+                                    enabled = !install.busy && !ui.checkingUpdate && !ui.downloadingUpdate
+                                ) {
                                     Icon(Icons.Outlined.SystemUpdateAlt, contentDescription = "检查更新")
                                 }
                                 IconButton(onClick = { vm.scan() }, enabled = ui.canScan) {
@@ -152,7 +155,9 @@ fun AabInstallAppScreen(vm: AppViewModel) {
                         if (ui.update != null) {
                             UpdateBanner(
                                 text = ui.updateMessage.ifBlank { "有新版本 ${ui.update?.tag}" },
-                                enabled = !install.busy && !ui.downloadingUpdate,
+                                enabled = !install.busy && !ui.downloadingUpdate && !ui.checkingUpdate,
+                                downloading = ui.downloadingUpdate,
+                                progress = ui.updateProgress,
                                 onInstall = { vm.downloadAndInstallUpdate() }
                             )
                         } else if (ui.updateMessage.isNotBlank()) {
@@ -229,17 +234,36 @@ private fun Banner() {
 }
 
 @Composable
-private fun UpdateBanner(text: String, enabled: Boolean, onInstall: () -> Unit) {
+private fun UpdateBanner(
+    text: String,
+    enabled: Boolean,
+    downloading: Boolean,
+    progress: Float?,
+    onInstall: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
-        Row(
-            Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text, modifier = Modifier.weight(1f))
-            Button(onClick = onInstall, enabled = enabled) { Text("下载并安装") }
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text, modifier = Modifier.weight(1f))
+                Button(onClick = onInstall, enabled = enabled) {
+                    Text(if (downloading) "下载中" else "下载并安装")
+                }
+            }
+            if (downloading) {
+                Spacer(Modifier.height(10.dp))
+                if (progress != null) {
+                    val clamped = progress.coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = { clamped },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
         }
     }
 }

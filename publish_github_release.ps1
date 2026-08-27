@@ -91,14 +91,30 @@ if (-not $SkipPack) {
 }
 
 if (-not (Test-Path $pkgRoot)) { Fail "missing packages\ ; run pack_all.bat first" }
-$assets = @(
+
+$pkgFiles = @(
     Get-ChildItem -Path (Join-Path $pkgRoot "windows"), (Join-Path $pkgRoot "android"), (Join-Path $pkgRoot "macos") -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -ne ".gitkeep" } |
-        ForEach-Object { $_.FullName }
+        Where-Object { $_.Name -ne ".gitkeep" }
 )
+$stale = @($pkgFiles | Where-Object { $_.Name -notlike "*$version*" })
+if ($stale.Count -gt 0) {
+    Write-Host "Skipping leftover files from other versions:" -ForegroundColor Yellow
+    foreach ($s in $stale) { Write-Host "  $($s.Name)" -ForegroundColor Yellow }
+}
+$versioned = @($pkgFiles | Where-Object { $_.Name -like "*$version*" })
+if ($versioned.Count -lt 1) { Fail "no $version artifacts in packages\windows|android|macos ; run pack_all.bat first" }
+
 $sumFile = Join-Path $pkgRoot "SHA256SUMS.txt"
+if (Test-Path $sumFile) { Remove-Item -Force $sumFile }
+foreach ($f in $versioned) {
+    $rel = $f.FullName.Substring($pkgRoot.Length).TrimStart("\", "/")
+    $rel = $rel -replace "\\", "/"
+    $hash = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLowerInvariant()
+    Add-Content -Path $sumFile -Value "$hash  $rel" -Encoding ascii
+}
+
+$assets = @($versioned | ForEach-Object { $_.FullName })
 if (Test-Path $sumFile) { $assets += $sumFile }
-if ($assets.Count -lt 1) { Fail "no artifacts in packages\windows|android|macos ; run pack_all.bat first" }
 
 $defaultNotes = @"
 AabInstalllHelp $tag
@@ -172,6 +188,31 @@ if (Test-GhRelease $tag) {
     $code = Invoke-Gh $createArgs
     if ($code -ne 0 -and -not (Test-GhRelease $tag)) { Fail "gh release create failed" }
 }
+
+function Remove-StaleReleaseAssets([string] $ReleaseTag, [string] $KeepVersion) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $jsonText = & gh release view $ReleaseTag --json assets 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $jsonText) { return }
+        $json = $jsonText | ConvertFrom-Json
+        foreach ($asset in @($json.assets)) {
+            $name = [string]$asset.name
+            if (-not $name -or $name -eq "SHA256SUMS.txt") { continue }
+            if ($name -notlike "AabInstalllHelp-*") { continue }
+            if ($name -like "*$KeepVersion*") { continue }
+            Write-Host "Deleting stale release asset $name" -ForegroundColor Yellow
+            $code = Invoke-Gh @("release", "delete-asset", $ReleaseTag, $name, "--yes")
+            if ($code -ne 0) {
+                Write-Host "WARN: failed to delete $name" -ForegroundColor Yellow
+            }
+        }
+    } finally {
+        $ErrorActionPreference = $old
+    }
+}
+
+Remove-StaleReleaseAssets $tag $version
 
 Write-Host ""
 Write-Host "Release published: $tag" -ForegroundColor Green

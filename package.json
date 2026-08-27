@@ -41,7 +41,8 @@
       "main.js",
       "process.js",
       "handle_drag.js",
-      "style.css"
+      "style.css",
+      "update_util.js"
     ],
     "mac": {
       "asar": false,

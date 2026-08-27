@@ -9,33 +9,63 @@ import java.net.URL
 import java.security.MessageDigest
 
 object UpdateChecker {
+    fun pickAndroidApkName(names: List<String>, version: String): String? {
+        val expected = "AabInstalllHelp-$version-android.apk"
+        return names.firstOrNull { it.equals(expected, ignoreCase = true) }
+    }
+
+    fun formatBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb)
+        return String.format(java.util.Locale.US, "%.1f GB", mb / 1024.0)
+    }
+
     fun check(): UpdateInfo? {
         val api = URL("https://api.github.com/repos/${BuildConfig.GITHUB_REPO}/releases/latest")
         val conn = (api.openConnection() as HttpURLConnection).apply {
             connectTimeout = 12000
             readTimeout = 15000
+            instanceFollowRedirects = true
             setRequestProperty("User-Agent", "AabInstalllHelp/${BuildConfig.VERSION_NAME}")
             setRequestProperty("Accept", "application/vnd.github+json")
         }
         try {
-            if (conn.responseCode !in 200..299) return null
+            if (conn.responseCode !in 200..299) {
+                throw IllegalStateException("检查更新失败：HTTP ${conn.responseCode}")
+            }
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             val root = JSONObject(body)
             val tag = root.optString("tag_name")
             val version = tag.trimStart('v', 'V')
             if (!isNewer(version, BuildConfig.VERSION_NAME)) return null
-            val assets = root.optJSONArray("assets") ?: return null
+            val assets = root.optJSONArray("assets") ?: throw IllegalStateException("未找到 Android 发布包")
+            val names = ArrayList<String>()
             var apkUrl: String? = null
             var sumsUrl: String? = null
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
                 val name = asset.optString("name")
-                val url = asset.optString("browser_download_url")
-                if (name.contains("-android.apk", ignoreCase = true)) apkUrl = url
-                if (name.equals("SHA256SUMS.txt", ignoreCase = true)) sumsUrl = url
+                names.add(name)
+                if (name.equals("SHA256SUMS.txt", ignoreCase = true)) {
+                    sumsUrl = asset.optString("browser_download_url")
+                }
             }
-            if (apkUrl.isNullOrBlank()) return null
-            val sha = sumsUrl?.let { readSha(it, apkUrl.substringAfterLast('/')) }
+            val apkName = pickAndroidApkName(names, version)
+                ?: throw IllegalStateException("未找到 Android 发布包（$tag）")
+            for (i in 0 until assets.length()) {
+                val asset = assets.getJSONObject(i)
+                if (asset.optString("name").equals(apkName, ignoreCase = true)) {
+                    apkUrl = asset.optString("browser_download_url")
+                    break
+                }
+            }
+            if (apkUrl.isNullOrBlank()) {
+                throw IllegalStateException("未找到 Android 发布包（$tag）")
+            }
+            val sha = sumsUrl?.let { readSha(it, apkName) }
             return UpdateInfo(
                 tag = tag,
                 version = version,
@@ -52,7 +82,8 @@ object UpdateChecker {
         dest.parentFile?.mkdirs()
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
-            readTimeout = 30000
+            readTimeout = 60000
+            instanceFollowRedirects = true
             setRequestProperty("User-Agent", "AabInstalllHelp/${BuildConfig.VERSION_NAME}")
         }
         try {

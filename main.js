@@ -6,6 +6,7 @@ const path = require('path');
 const readFile = require('fs');
 const https = require('https');
 const { spawn } = require('child_process');
+const updateUtil = require('./update_util');
 
 let UseDevicesId = "";
 // 最近一次来自渲染进程的 ipc event，供 AabInfo 等无 event 场景回落到 UI
@@ -750,14 +751,37 @@ function parseDevices(event, output) {
   return devices;
 };
 
-function httpsGetJson(url) {
+function resolveHttpsUrl(fromUrl, location) {
+  const urlLib = require('url');
+  const next = urlLib.resolve(fromUrl, location || '');
+  if (!/^https:/i.test(next)) {
+    throw new Error('拒绝非 HTTPS 地址');
+  }
+  return next;
+}
+
+function httpsGetJson(url, redirects) {
+  redirects = redirects || 0;
   return new Promise(function (resolve, reject) {
+    if (redirects > 8) {
+      reject(new Error('too many redirects'));
+      return;
+    }
     const req = https.get(url, {
       headers: {
         'User-Agent': 'AabInstalllHelp/' + app.getVersion(),
         'Accept': 'application/vnd.github+json'
       }
     }, function (res) {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        try {
+          httpsGetJson(resolveHttpsUrl(url, res.headers.location), redirects + 1).then(resolve, reject);
+        } catch (err) {
+          reject(err);
+        }
+        return;
+      }
       let body = '';
       res.on('data', function (chunk) { body += chunk; });
       res.on('end', function () {
@@ -780,61 +804,90 @@ function httpsGetJson(url) {
   });
 }
 
-function httpsDownload(url, dest) {
+function httpsDownload(url, dest, onProgress, redirects) {
+  redirects = redirects || 0;
   return new Promise(function (resolve, reject) {
-    const file = readFile.createWriteStream(dest);
+    if (redirects > 8) {
+      reject(new Error('too many redirects'));
+      return;
+    }
+    let settled = false;
+    function fail(err) {
+      if (settled) return;
+      settled = true;
+      try {
+        if (readFile.existsSync(dest)) readFile.unlinkSync(dest);
+      } catch (e) { }
+      reject(err);
+    }
     const req = https.get(url, {
       headers: { 'User-Agent': 'AabInstalllHelp/' + app.getVersion() }
     }, function (res) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        file.close();
-        httpsDownload(res.headers.location, dest).then(resolve, reject);
+        res.resume();
+        let next;
+        try {
+          next = resolveHttpsUrl(url, res.headers.location);
+        } catch (err) {
+          fail(err);
+          return;
+        }
+        httpsDownload(next, dest, onProgress, redirects + 1).then(function () {
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        }, fail);
         return;
       }
       if (res.statusCode !== 200) {
-        file.close();
-        reject(new Error('HTTP ' + res.statusCode));
+        res.resume();
+        fail(new Error('HTTP ' + res.statusCode));
         return;
       }
+      const total = parseInt(res.headers['content-length'] || '0', 10) || 0;
+      let received = 0;
+      const file = readFile.createWriteStream(dest);
+      res.on('data', function (chunk) {
+        received += chunk.length;
+        if (typeof onProgress === 'function') {
+          onProgress(received, total);
+        }
+      });
       res.pipe(file);
       file.on('finish', function () {
-        file.close(resolve);
+        file.close(function () {
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        });
       });
+      file.on('error', fail);
+      res.on('error', fail);
     });
-    req.on('error', function (err) {
-      file.close();
-      reject(err);
-    });
+    req.on('error', fail);
   });
 }
 
-function versionIsNewer(remote, local) {
-  function parts(text) {
-    return String(text).split('.').map(function (p) {
-      const n = parseInt(String(p).replace(/[^0-9]/g, ''), 10);
-      return isNaN(n) ? 0 : n;
-    });
+function sendUpdateProgress(event, payload) {
+  const sender = (event && event.sender) || (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents);
+  if (!sender) return;
+  try {
+    sender.send('on_update_progress', payload);
+  } catch (err) {
+    console.error('sendUpdateProgress failed:', err);
   }
-  const a = parts(remote);
-  const b = parts(local);
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    const left = i < a.length ? a[i] : 0;
-    const right = i < b.length ? b[i] : 0;
-    if (left !== right) return left > right;
-  }
-  return false;
 }
 
-function pickReleaseAsset(assets, kind) {
-  if (!Array.isArray(assets)) return null;
-  for (let i = 0; i < assets.length; i++) {
-    const name = assets[i] && assets[i].name ? String(assets[i].name) : '';
-    if (kind === 'win' && /windows-x64\.exe$/i.test(name)) return assets[i];
-    if (kind === 'mac' && /macos.*\.dmg$/i.test(name)) return assets[i];
-    if (kind === 'sum' && /^SHA256SUMS\.txt$/i.test(name)) return assets[i];
+function sendUpdateDone(event, payload) {
+  const sender = (event && event.sender) || (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents);
+  if (!sender) return;
+  try {
+    sender.send('on_update_done', payload);
+  } catch (err) {
+    console.error('sendUpdateDone failed:', err);
   }
-  return null;
 }
 
 function checkGithubUpdate(event) {
@@ -842,20 +895,29 @@ function checkGithubUpdate(event) {
     .then(function (json) {
       const tag = json.tag_name || '';
       const version = String(tag).replace(/^v/i, '');
-      const kind = process.platform === 'darwin' ? 'mac' : 'win';
-      const asset = pickReleaseAsset(json.assets, kind);
-      const sums = pickReleaseAsset(json.assets, 'sum');
-      if (!asset) {
-        event.sender.send('on_update_result', { newer: false, tag: tag, message: '未找到当前平台的发布包' });
+      const kind = updateUtil.currentUpdateKind(process.platform);
+      if (!kind) {
+        event.sender.send('on_update_result', { newer: false, tag: tag, message: '当前系统不支持应用内更新' });
         return;
       }
-      const newer = versionIsNewer(version, app.getVersion());
+      const asset = updateUtil.pickReleaseAsset(json.assets, kind, version);
+      const sums = updateUtil.pickReleaseAsset(json.assets, 'sum', version);
+      if (!asset) {
+        event.sender.send('on_update_result', {
+          newer: false,
+          tag: tag,
+          message: '未找到 ' + updateUtil.platformUpdateHint(kind) + '（' + (tag || version) + '）'
+        });
+        return;
+      }
+      const newer = updateUtil.versionIsNewer(version, app.getVersion());
       event.sender.send('on_update_result', {
         newer: newer,
         tag: tag,
         version: version,
         url: asset.browser_download_url,
         name: asset.name,
+        size: asset.size || 0,
         shaUrl: sums ? sums.browser_download_url : '',
         message: newer ? '' : ('已是最新 ' + tag)
       });
@@ -879,12 +941,54 @@ function sha256File(filePath) {
 function downloadAndLaunchUpdate(event, payload) {
   if (!payload || !payload.url) {
     sendMsgToUI(event, '更新信息不完整');
+    sendUpdateDone(event, { ok: false, error: '更新信息不完整' });
     return;
   }
-  const dest = path.join(app.getPath('temp'), payload.name || 'AabInstalllHelp-update.exe');
-  sendMsgToUI(event, '正在下载 ' + (payload.tag || '更新') + ' ...');
-  httpsDownload(payload.url, dest)
+  const kind = updateUtil.currentUpdateKind(process.platform);
+  if (kind !== 'win' && kind !== 'mac') {
+    const msg = '当前系统不支持自动安装更新';
+    sendMsgToUI(event, msg);
+    sendUpdateDone(event, { ok: false, error: msg });
+    return;
+  }
+  const dest = path.join(app.getPath('temp'), payload.name || 'AabInstalllHelp-update.bin');
+  const fallbackTotal = Number(payload.size) || 0;
+  let lastPct = -2;
+  let lastAt = 0;
+  sendMsgToUI(event, '正在下载 ' + (payload.tag || '更新'));
+  sendUpdateProgress(event, {
+    phase: 'download',
+    received: 0,
+    total: fallbackTotal,
+    percent: fallbackTotal > 0 ? 0 : -1,
+    message: '正在下载 ' + (payload.tag || '更新')
+  });
+  httpsDownload(payload.url, dest, function (received, total) {
+    const known = total > 0 ? total : fallbackTotal;
+    const pct = updateUtil.progressPercent(received, known);
+    const now = Date.now();
+    if (received !== known && pct === lastPct && now - lastAt < 200) return;
+    lastPct = pct;
+    lastAt = now;
+    const sizeText = known > 0
+      ? (updateUtil.formatByteSize(received) + ' / ' + updateUtil.formatByteSize(known))
+      : updateUtil.formatByteSize(received);
+    sendUpdateProgress(event, {
+      phase: 'download',
+      received: received,
+      total: known,
+      percent: pct,
+      message: '正在下载 ' + (payload.tag || '更新') + '  ' + sizeText
+    });
+  })
     .then(function () {
+      sendUpdateProgress(event, {
+        phase: 'verify',
+        received: 1,
+        total: 1,
+        percent: -1,
+        message: '正在校验 SHA256…'
+      });
       if (!payload.shaUrl) {
         throw new Error('发布包缺少 SHA256SUMS.txt，拒绝安装');
       }
@@ -902,6 +1006,7 @@ function downloadAndLaunchUpdate(event, payload) {
     })
     .then(function () {
       sendMsgToUI(event, '校验通过，启动安装包');
+      sendUpdateDone(event, { ok: true, message: '校验通过，启动安装包' });
       if (process.platform === 'darwin') {
         spawn('open', [dest], { detached: true, stdio: 'ignore' }).unref();
       } else {
@@ -911,16 +1016,27 @@ function downloadAndLaunchUpdate(event, payload) {
     })
     .catch(function (err) {
       sendMsgToUI(event, '更新失败：' + err.message);
+      sendUpdateDone(event, { ok: false, error: '更新失败：' + err.message });
     });
 }
 
-function httpsGetJsonRaw(url) {
+function httpsGetJsonRaw(url, redirects) {
+  redirects = redirects || 0;
   return new Promise(function (resolve, reject) {
+    if (redirects > 8) {
+      reject(new Error('too many redirects'));
+      return;
+    }
     const req = https.get(url, {
       headers: { 'User-Agent': 'AabInstalllHelp/' + app.getVersion() }
     }, function (res) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        httpsGetJsonRaw(res.headers.location).then(resolve, reject);
+        res.resume();
+        try {
+          httpsGetJsonRaw(resolveHttpsUrl(url, res.headers.location), redirects + 1).then(resolve, reject);
+        } catch (err) {
+          reject(err);
+        }
         return;
       }
       let body = '';
