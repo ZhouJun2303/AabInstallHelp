@@ -59,3 +59,20 @@ ehthumbs.db
 config
 install_temp
 bin_win/java/lib/modules
+
+android/.gradle/
+android/.kotlin/
+android/build/
+android/**/build/
+android/local.properties
+android/keystore.properties
+android/app/src/main/assets/runtime/
+
+# Final packages (keep directory layout, ignore binaries)
+packages/windows/*
+!packages/windows/.gitkeep
+packages/android/*
+!packages/android/.gitkeep
+packages/macos/*
+!packages/macos/.gitkeep
+packages/SHA256SUMS.txt

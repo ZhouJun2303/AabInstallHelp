@@ -3,50 +3,46 @@ String.prototype.endswith = function (endStr) {
     return (d >= 0 && this.lastIndexOf(endStr) == d)
 }
 
-//拖拽文件到窗口事件
 const holder = document.getElementById('holder');
 const message = document.getElementById('message');
 
-holder.ondragente = holder.ondragover = (event) => {
+holder.ondragenter = holder.ondragover = (event) => {
     event.preventDefault();
-
-    holder.className = "dropify-wrapper-ondrag";
-
-    message.innerHTML = "松开进行安装";
+    holder.className = "dropify-wrapper-ondrag drop-zone";
+    message.innerHTML = "松开以选择该 aab";
 }
 
 holder.ondragend = holder.ondragleave = (event) => {
-
+    event.preventDefault();
     setMessageInitStatus();
 }
 
 holder.ondrop = (e) => {
-    e.preventDefault()
+    e.preventDefault();
     for (let f of e.dataTransfer.files) {
-
         var filepath = f.path;
-
-        console.log(`识别到拖拽文件进来: ${filepath}`);
-
         if (!filepath.endswith('.aab')) {
             setMessageInitStatus();
-            alert(`抱歉，不能处理非 aab 后缀的文件： + ${filepath}，请选择标准的 aab 安装文件进行安装。`);
+            alert('抱歉，不能处理非 aab 后缀的文件：' + filepath);
             return false;
         }
-
-        message.innerHTML = "已选择文件：" + f.path + "<br><br>";
-
-        holder.className = "dropify-wrapper";
+        holder.className = "drop-zone";
         window.aabFilePath = filepath;
-        start_process_aab();
+        if (typeof rememberAab === 'function') {
+            rememberAab(filepath);
+        }
+        setMessageInitStatus();
+        if (typeof updateActionState === 'function') {
+            updateActionState();
+        }
     }
 }
 
 function setMessageInitStatus() {
-    holder.className = "dropify-wrapper";
+    holder.className = "drop-zone";
     if (window.aabFilePath) {
-        message.innerHTML = "已选择文件：" + window.aabFilePath + "<br><br>";
+        message.innerHTML = "已选择文件：" + window.aabFilePath;
         return;
     }
-    message.innerHTML = "点击或将文件拖拽到此区域处理(aab 格式的安装包)";
+    message.innerHTML = "点击或将 aab 拖到这里选择文件";
 }

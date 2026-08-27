@@ -3,39 +3,63 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>安装 aab 程序包</title>
-    <!-- https://electronjs.org/docs/tutorial/security#csp-meta-tag -->
+    <title>AAB 安装助手</title>
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <div class="Top">
-        <div style="display: flex; align-items: center; justify-content: flex-start; width: 100%;">
-            <label for="connectdevice" title="connectdevice" style="margin-right: 10px;">当前连接设备:</label>
-            <select id="connectdevice" name="connectdevice" style="margin-right: 10px;"></select>
-            <div style="margin-left: auto;">
-                <input type="button" value="刷新连接设备" onclick="RefreshConnectDevice()">
-                <input type="button" value="安装AAB" onclick="InstallAAb()">
-                <input type="button" value="清除日志" onclick="ClearLog()">
+    <div class="app">
+        <header class="app-header">
+            <div>
+                <h1>AAB 安装助手</h1>
+                <p class="sub" id="appversion">测试签名 · 不能覆盖商店正式包</p>
             </div>
-        </div>
-
-        <div class="history-row">
-            <label for="aabhistory" style="margin-right: 10px;">候选文件:</label>
-            <select id="aabhistory" name="aabhistory" class="path-select"></select>
-            <input type="button" value="刷新" onclick="RefreshAabCandidates()">
-        </div>
-        <div id="aabdirhint" class="history-dir"></div>
-
-        <div id="holder" class="dropify-wrapper" onclick="showSelectAabFile()">
-            <div id="message" class="dropify-message">
-                点击或将文件拖拽到此区域处理(aab 格式的安装包)
+            <div class="header-actions">
+                <span id="updatechip" class="chip chip-warn hidden">有新版本</span>
+                <button type="button" id="btn-update" class="btn" onclick="CheckUpdate()">检查更新</button>
             </div>
-        </div>
-    </div>
-    <div id="log" class="log-wrapper">
+        </header>
 
+        <div class="banner" id="banner">
+            安装结果使用 Android debug 测试签名，无法覆盖正式签名应用，也不能用于上架。
+        </div>
+        <div id="updatemsg" class="update-msg hidden"></div>
+
+        <section class="card">
+            <div class="card-title">设备</div>
+            <div class="row">
+                <label for="connectdevice">当前连接设备</label>
+                <select id="connectdevice" name="connectdevice" class="grow"></select>
+                <button type="button" class="btn" onclick="RefreshConnectDevice()">刷新</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="card-title">安装包</div>
+            <div class="row">
+                <label for="aabhistory">候选文件</label>
+                <select id="aabhistory" name="aabhistory" class="grow path-select"></select>
+                <button type="button" class="btn" onclick="RefreshAabCandidates()">刷新目录</button>
+            </div>
+            <div id="aabdirhint" class="hint"></div>
+            <div id="holder" class="drop-zone" onclick="showSelectAabFile()">
+                <div id="message" class="dropify-message">点击或将 aab 拖到这里选择文件</div>
+            </div>
+        </section>
+
+        <section class="card log-card">
+            <div class="row">
+                <div class="card-title">日志</div>
+                <span id="statechip" class="chip">空闲</span>
+                <button type="button" class="btn" onclick="ClearLog()">清除日志</button>
+            </div>
+            <div id="log" class="log-wrapper">准备就绪</div>
+        </section>
+
+        <footer class="app-footer">
+            <button type="button" id="btn-install" class="btn btn-primary" onclick="InstallAAb()" disabled>安装 AAB</button>
+        </footer>
     </div>
 
     <script type="text/javascript" src="./handle_drag.js"></script>

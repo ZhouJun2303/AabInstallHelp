@@ -39,8 +39,19 @@ v13.4.0
 ~ » npm install && npm run start
 ```
 
-### 打包方式（会在根目录的 `release` 文件夹下）
-1. mac 平台
+### 最终安装包位置（根目录 `packages/`）
+
+```
+packages/windows/   Windows 安装包 .exe
+packages/android/   Android APK
+packages/macos/     macOS dmg
+packages/SHA256SUMS.txt
+```
+
+`release/` 和 `android/app/build/` 只是中间产物，不要从那里分发。
+
+### 打包方式
+1. mac 平台（中间产物在 `release/`，请再拷到 `packages/macos/` 或直接 `pack_all.bat`）
 ```
 npm run elebuild_mac
 ```
@@ -49,6 +60,22 @@ npm run elebuild_mac
 ```
 npm run elebuild_win
 ```
+
+3. Windows + Android 打出最终包（写入 `packages/windows`、`packages/android`）
+```
+pack_all.bat
+```
+
+4. 发布到 GitHub Release（需 `gh auth login`）
+```
+publish_github_release.bat
+```
+
+版本号只写在根目录 `package.json`（桌面、Android `versionName`/`versionCode`、安装包文件名都读它）。`pack_all.bat` **不会**改版本。只有 `publish_github_release.bat` 发版时自增（默认 patch：`1.0.3` → `1.0.4`），然后打包、提交、打 `v*` tag。可用 `/minor`、`/major`；`/skip-pack` 或 `/no-bump` 则不自增。
+
+Android 工程在 `android/`。需要本机 Android SDK；`local.properties` 的 `sdk.dir` 或环境变量 `ANDROID_HOME`。手机 APK 启动后扫描共享存储中的 `.aab`，用与桌面相同的 debug 测试签名安装。
+
+应用内「检查更新」读取 GitHub `releases/latest`，确认后才下载。draft Release 不会作为更新源。macOS dmg 由 tag `v*` 触发的 Actions 补传到同一 Release。
 
 ### 签名说明
 

@@ -1,0 +1,31 @@
+name: release-macos
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Install and build dmg
+        run: |
+          npm install
+          npm run elebuild_mac
+      - name: Upload dmg to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG=$(ls release/*.dmg | head -n 1)
+          test -n "$DMG"
+          NAME="AabInstalllHelp-${VERSION}-macos.dmg"
+          cp "$DMG" "$NAME"
+          gh release upload "$GITHUB_REF_NAME" "$NAME" --clobber

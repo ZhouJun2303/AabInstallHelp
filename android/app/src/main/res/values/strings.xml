@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AAB 安装助手</string>
+    <string name="banner_test_sign">安装结果使用 Android debug 测试签名，不能覆盖商店正式包，也不能用于上架。</string>
+</resources>

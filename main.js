@@ -4,6 +4,8 @@ const exec = require('child_process').exec;
 const xmlReader = require('xmlreader');
 const path = require('path');
 const readFile = require('fs');
+const https = require('https');
+const { spawn } = require('child_process');
 
 let UseDevicesId = "";
 // 最近一次来自渲染进程的 ipc event，供 AabInfo 等无 event 场景回落到 UI
@@ -23,11 +25,11 @@ const DEBUG_SIGN = {
 function createWindow() {
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
-    title: "安装 aab 程序包",
-    minHeight: 600,
-    minWidth: 800,
-    width: 800,
-    height: 600,
+    title: "AAB 安装助手",
+    minHeight: 640,
+    minWidth: 900,
+    width: 960,
+    height: 720,
     webPreferences: {
       nodeIntegration: true
     }
@@ -74,11 +76,22 @@ ipcMain.on('open_file_select', function (event, arg) {
 // 接收渲染进程发送过来的消息，可以通过：on_install_rsp 发送消息回去
 ipcMain.on('install_aab', function (event, arg) {
   console.log("请求处理安装 aab 安装包: " + arg);
-
-  // console.log(getJavaPath());
-
-  // 开始 aab 安装处理流程
   parseAabContent(event, arg);
+});
+
+ipcMain.on('query_app_info', function (event) {
+  event.sender.send('on_app_info', {
+    version: app.getVersion(),
+    name: app.getName()
+  });
+});
+
+ipcMain.on('check_update', function (event) {
+  checkGithubUpdate(event);
+});
+
+ipcMain.on('download_update', function (event, payload) {
+  downloadAndLaunchUpdate(event, payload);
 });
 
 // 接收渲染进程发送过来的消息，可以通过：on_install_rsp 发送消息回去
@@ -103,6 +116,19 @@ function UseDevicesIdRefresh(event, arg) {
  * @param {Electron.IpcMainEvent|string} event 
  * @param {*} msg 
  */
+function sendInstallState(event, state, extra) {
+  const payload = { state: state, extra: extra || '' };
+  const sender = (event && event.sender) || (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents);
+  if (!sender) {
+    return;
+  }
+  try {
+    sender.send('on_install_state', payload);
+  } catch (err) {
+    console.error('sendInstallState failed:', err);
+  }
+}
+
 function sendMsgToUI(event, msg) {
   if (typeof event === 'string' && (arguments.length < 2 || msg === undefined)) {
     msg = event;
@@ -238,6 +264,7 @@ function extractLauncherComponent(manifestXml, pkg) {
 function parseAabContent(event, aab_file_path) {
   if (null == aab_file_path || '' == aab_file_path) {
     sendMsgToUI(event, "未选择文件");
+    sendInstallState(event, 'error', '未选择文件');
     return;
   }
   if (!readFile.existsSync(aab_file_path)) {
@@ -248,8 +275,10 @@ function parseAabContent(event, aab_file_path) {
   }
   if (UseDevicesId == null || UseDevicesId == "") {
     sendMsgToUI(event, "未选择设备");
+    sendInstallState(event, 'error', '未选择设备');
     return;
   }
+  sendInstallState(event, 'running');
   sendMsgToUI(event, `当前选择设备： ${UseDevicesId}`);
   sendMsgToUI(event, `1、正在进行 aab 文件解析：${path.basename(aab_file_path)}`);
 
@@ -479,6 +508,7 @@ function confirmUninstallThenRetry(event, aabInfo, apks_file, installErr) {
     }
     if (index !== 0) {
       sendMsgToUI(event, '已取消安装');
+      sendInstallState(event, 'idle');
       return;
     }
     uninstallThenRetryInstall(event, aabInfo, apks_file);
@@ -557,6 +587,7 @@ function showAppMessageBox(options) {
 }
 
 function tipsInstallError(msg) {
+  sendInstallState(lastUiEvent, 'error', msg);
   const text = msg == null ? '' : String(msg);
   var options = {
     type: 'error',
@@ -585,6 +616,7 @@ function tipsInstallError(msg) {
  * @param {AabInfo} aabInfo 
  */
 function tipsInstallFinish(is_auto_start, aabInfo) {
+  sendInstallState(lastUiEvent, 'success');
 
   let version_info = `(应用包名：${aabInfo.pkg}, 版本信息：${aabInfo.getAppVersionInfo()})`;
 
@@ -668,6 +700,195 @@ function parseDevices(event, output) {
   });
   return devices;
 };
+
+const GITHUB_REPO = 'ZhouJun2303/AabInstallHelp';
+
+function httpsGetJson(url) {
+  return new Promise(function (resolve, reject) {
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'AabInstalllHelp/' + app.getVersion(),
+        'Accept': 'application/vnd.github+json'
+      }
+    }, function (res) {
+      let body = '';
+      res.on('data', function (chunk) { body += chunk; });
+      res.on('end', function () {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error('HTTP ' + res.statusCode + ': ' + body.slice(0, 200)));
+          return;
+        }
+        try {
+          resolve(JSON.parse(body));
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, function () {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
+  });
+}
+
+function httpsDownload(url, dest) {
+  return new Promise(function (resolve, reject) {
+    const file = readFile.createWriteStream(dest);
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'AabInstalllHelp/' + app.getVersion() }
+    }, function (res) {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        file.close();
+        httpsDownload(res.headers.location, dest).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        file.close();
+        reject(new Error('HTTP ' + res.statusCode));
+        return;
+      }
+      res.pipe(file);
+      file.on('finish', function () {
+        file.close(resolve);
+      });
+    });
+    req.on('error', function (err) {
+      file.close();
+      reject(err);
+    });
+  });
+}
+
+function versionIsNewer(remote, local) {
+  function parts(text) {
+    return String(text).split('.').map(function (p) {
+      const n = parseInt(String(p).replace(/[^0-9]/g, ''), 10);
+      return isNaN(n) ? 0 : n;
+    });
+  }
+  const a = parts(remote);
+  const b = parts(local);
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const left = i < a.length ? a[i] : 0;
+    const right = i < b.length ? b[i] : 0;
+    if (left !== right) return left > right;
+  }
+  return false;
+}
+
+function pickReleaseAsset(assets, kind) {
+  if (!Array.isArray(assets)) return null;
+  for (let i = 0; i < assets.length; i++) {
+    const name = assets[i] && assets[i].name ? String(assets[i].name) : '';
+    if (kind === 'win' && /windows-x64\.exe$/i.test(name)) return assets[i];
+    if (kind === 'mac' && /macos.*\.dmg$/i.test(name)) return assets[i];
+    if (kind === 'sum' && /^SHA256SUMS\.txt$/i.test(name)) return assets[i];
+  }
+  return null;
+}
+
+function checkGithubUpdate(event) {
+  httpsGetJson('https://api.github.com/repos/' + GITHUB_REPO + '/releases/latest')
+    .then(function (json) {
+      const tag = json.tag_name || '';
+      const version = String(tag).replace(/^v/i, '');
+      const kind = process.platform === 'darwin' ? 'mac' : 'win';
+      const asset = pickReleaseAsset(json.assets, kind);
+      const sums = pickReleaseAsset(json.assets, 'sum');
+      if (!asset) {
+        event.sender.send('on_update_result', { newer: false, tag: tag, message: '未找到当前平台的发布包' });
+        return;
+      }
+      const newer = versionIsNewer(version, app.getVersion());
+      event.sender.send('on_update_result', {
+        newer: newer,
+        tag: tag,
+        version: version,
+        url: asset.browser_download_url,
+        name: asset.name,
+        shaUrl: sums ? sums.browser_download_url : '',
+        message: newer ? '' : ('已是最新 ' + tag)
+      });
+    })
+    .catch(function (err) {
+      event.sender.send('on_update_result', { error: '检查更新失败：' + err.message });
+    });
+}
+
+function sha256File(filePath) {
+  const crypto = require('crypto');
+  return new Promise(function (resolve, reject) {
+    const hash = crypto.createHash('sha256');
+    const stream = readFile.createReadStream(filePath);
+    stream.on('data', function (d) { hash.update(d); });
+    stream.on('end', function () { resolve(hash.digest('hex')); });
+    stream.on('error', reject);
+  });
+}
+
+function downloadAndLaunchUpdate(event, payload) {
+  if (!payload || !payload.url) {
+    sendMsgToUI(event, '更新信息不完整');
+    return;
+  }
+  const dest = path.join(app.getPath('temp'), payload.name || 'AabInstalllHelp-update.exe');
+  sendMsgToUI(event, '正在下载 ' + (payload.tag || '更新') + ' ...');
+  httpsDownload(payload.url, dest)
+    .then(function () {
+      if (!payload.shaUrl) {
+        throw new Error('发布包缺少 SHA256SUMS.txt，拒绝安装');
+      }
+      return httpsGetJsonRaw(payload.shaUrl).then(function (text) {
+        return sha256File(dest).then(function (actual) {
+          const line = String(text).split(/\r?\n/).find(function (row) {
+            return row.toLowerCase().indexOf(String(payload.name).toLowerCase()) >= 0;
+          });
+          const expected = line ? line.trim().split(/\s+/)[0] : '';
+          if (!expected || expected.toLowerCase() !== actual.toLowerCase()) {
+            throw new Error('SHA256 校验失败，已保留旧版本');
+          }
+        });
+      });
+    })
+    .then(function () {
+      sendMsgToUI(event, '校验通过，启动安装包');
+      if (process.platform === 'darwin') {
+        spawn('open', [dest], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        spawn(dest, [], { detached: true, stdio: 'ignore' }).unref();
+      }
+      setTimeout(function () { app.quit(); }, 500);
+    })
+    .catch(function (err) {
+      sendMsgToUI(event, '更新失败：' + err.message);
+    });
+}
+
+function httpsGetJsonRaw(url) {
+  return new Promise(function (resolve, reject) {
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'AabInstalllHelp/' + app.getVersion() }
+    }, function (res) {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        httpsGetJsonRaw(res.headers.location).then(resolve, reject);
+        return;
+      }
+      let body = '';
+      res.on('data', function (chunk) { body += chunk; });
+      res.on('end', function () {
+        if (res.statusCode !== 200) {
+          reject(new Error('HTTP ' + res.statusCode));
+          return;
+        }
+        resolve(body);
+      });
+    });
+    req.on('error', reject);
+  });
+}
 
 // aab 文件信息类
 class AabInfo {

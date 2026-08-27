@@ -1,0 +1,5 @@
+-keep class com.android.tools.build.bundletool.** { *; }
+-dontwarn com.android.tools.build.bundletool.**
+-dontwarn javax.annotation.**
+-dontwarn javax.lang.model.**
+-dontwarn com.google.errorprone.**

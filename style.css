@@ -1,50 +1,249 @@
-.dropify-wrapper, .dropify-wrapper-ondrag {
-    /* height: 200px; */
-    height: 100px;
-    max-width: 100%;
+:root {
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --ok-bg: #dcfce7;
+    --ok-fg: #15803d;
+    --warn-bg: #fef3c7;
+    --warn-fg: #b45309;
+    --err-bg: #fee2e2;
+    --err-fg: #b91c1c;
+    --radius: 12px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     font-size: 14px;
-    padding: 20px 10px;
-    color: #777;
-    background-color: #FFF;
+}
+
+.app {
+    min-height: 100vh;
+    padding: 20px 20px 88px;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.app-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.app-header h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.sub {
+    margin: 6px 0 0;
+    color: var(--muted);
+    opacity: 0.95;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.banner {
+    background: rgba(37, 99, 235, 0.08);
+    color: #1e3a8a;
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+}
+
+.update-msg {
+    margin: -8px 0 16px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    border: 1px solid var(--line);
+}
+
+.card-title {
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+.row label {
+    min-width: 92px;
+    color: var(--muted);
+}
+
+.grow {
+    flex: 1;
+    min-width: 0;
+}
+
+select,
+button,
+input {
+    font: inherit;
+}
+
+select {
+    height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 10px;
+    background: #fff;
+}
+
+.btn {
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--text);
+}
+
+.btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    min-width: 140px;
+    height: 40px;
+    font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    color: #fff;
+}
+
+.hint {
+    color: var(--muted);
+    font-size: 12px;
+    margin: 8px 0 12px;
+    word-break: break-all;
+}
+
+.drop-zone,
+.dropify-wrapper,
+.dropify-wrapper-ondrag {
+    min-height: 88px;
+    border: 2px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
     text-align: center;
-    border: 2px dashed #E5E5E5;
+    color: var(--muted);
+    cursor: pointer;
+    background: #fafafa;
+}
+
+.dropify-wrapper-ondrag {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(37, 99, 235, 0.04);
+}
+
+.log-card .row {
+    margin-bottom: 8px;
 }
 
 .log-wrapper {
-    height: 100%;
-    /* position: relative; */
-    top: 42%;
-    font-size: 14px;
-    text-align: left;
-    color: #777;
-    background-color: #FFF;
+    height: 280px;
+    overflow: auto;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #334155;
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
-.dropify-wrapper-ondrag  {
-    border: 3px dashed rgb(7, 100, 243);
+.chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #e2e8f0;
+    color: #475569;
 }
 
-.dropify-message {
-    position: relative;
-    top: 42%;
+.chip-ok {
+    background: var(--ok-bg);
+    color: var(--ok-fg);
 }
 
-.date-select {
-    padding-bottom: 10px;
+.chip-warn {
+    background: var(--warn-bg);
+    color: var(--warn-fg);
 }
 
-span {
-    font-size: 14px;
-    padding: 5px 10px;
-    color: #777;
+.chip-err {
+    background: var(--err-bg);
+    color: var(--err-fg);
 }
 
+.chip-run {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
 
-.Top {
-    position: sticky;
-    top: 0;
-    background-color: #fff;
-    /* 如果需要与表头背景色一致，可以设置为相应的颜色值 */
+.hidden {
+    display: none !important;
+}
+
+.app-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(248, 250, 252, 0.96);
+    border-top: 1px solid var(--line);
+    padding: 12px 20px;
+    display: flex;
+    justify-content: flex-end;
 }
 
 .history-row {
@@ -57,7 +256,6 @@ span {
 .path-select {
     flex: 1;
     min-width: 0;
-    margin-right: 8px;
 }
 
 .history-dir {
@@ -65,4 +263,8 @@ span {
     font-size: 12px;
     margin-top: 4px;
     word-break: break-all;
+}
+
+.dropify-message {
+    pointer-events: none;
 }

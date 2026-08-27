@@ -175,12 +175,15 @@ function renderAabHistorySelect(items, selected, dir) {
 
 function setCurrentAab(filepath) {
   window.aabFilePath = filepath || "";
-  var message = document.getElementById('message');
-  if (filepath) {
-    message.innerText = "已选择文件：" + filepath + "\n\n";
-  } else if (typeof setMessageInitStatus === 'function') {
+  if (typeof setMessageInitStatus === 'function') {
     setMessageInitStatus();
+  } else {
+    var message = document.getElementById('message');
+    if (filepath) {
+      message.innerText = "已选择文件：" + filepath;
+    }
   }
+  updateActionState();
 }
 
 function refreshAabCandidates(preferredPath) {
@@ -236,18 +239,86 @@ function initAabHistory() {
   refreshAabCandidates();
 }
 
+window.installBusy = false;
+
+function setStateChip(kind, text) {
+  var chip = document.getElementById('statechip');
+  if (!chip) return;
+  chip.className = 'chip ' + (kind || '');
+  chip.textContent = text;
+}
+
+function updateActionState() {
+  var installBtn = document.getElementById('btn-install');
+  var updateBtn = document.getElementById('btn-update');
+  var device = document.getElementById('connectdevice');
+  var hasFile = isUsableAabFile(window.aabFilePath);
+  var hasDevice = !!(device && device.value);
+  var idle = !window.installBusy;
+  if (installBtn) {
+    installBtn.disabled = !(idle && hasFile && hasDevice);
+  }
+  if (updateBtn) {
+    updateBtn.disabled = !idle;
+  }
+}
+
 start_process_aab = function () {
-  const log = document.getElementById('log');
-  log.innerHTML = "正在安装：<br>";
   rememberAab(window.aabFilePath);
   InstallAAb();
 };
 
 ipcRenderer.on('on_install_rsp', function (event, arg) {
-  console.log("接收到主进程发送的消息：" + arg);
   const log = document.getElementById('log');
   log.innerText = log.innerText + arg;
-  window.scrollTo(0, document.body.scrollHeight);
+  log.scrollTop = log.scrollHeight;
+});
+
+ipcRenderer.on('on_install_state', function (event, payload) {
+  var state = payload && payload.state;
+  window.installBusy = state === 'running';
+  if (state === 'running') {
+    setStateChip('chip-run', '安装中');
+  } else if (state === 'success') {
+    setStateChip('chip-ok', '成功');
+  } else if (state === 'error') {
+    setStateChip('chip-err', '失败');
+  } else {
+    setStateChip('', '空闲');
+  }
+  updateActionState();
+});
+
+ipcRenderer.on('on_app_info', function (event, info) {
+  var el = document.getElementById('appversion');
+  if (el && info && info.version) {
+    el.textContent = 'v' + info.version + ' · 测试签名 · 不能覆盖商店正式包';
+  }
+});
+
+ipcRenderer.on('on_update_result', function (event, result) {
+  var chip = document.getElementById('updatechip');
+  var msg = document.getElementById('updatemsg');
+  if (!result) return;
+  if (result.error) {
+    chip.classList.add('hidden');
+    msg.classList.remove('hidden');
+    msg.textContent = result.error;
+    return;
+  }
+  if (result.newer) {
+    chip.classList.remove('hidden');
+    msg.classList.remove('hidden');
+    msg.textContent = '发现 ' + result.tag + '。确认后才会下载安装。';
+    var go = confirm('发现新版本 ' + result.tag + '\n\n确认后下载并启动安装包，当前程序会退出。');
+    if (go) {
+      ipcRenderer.send('download_update', result);
+    }
+  } else {
+    chip.classList.add('hidden');
+    msg.classList.remove('hidden');
+    msg.textContent = result.message || ('已是最新 ' + (result.tag || ''));
+  }
 });
 
 function showSelectAabFile() {
@@ -269,13 +340,7 @@ function showSelectAabFile() {
         return;
       }
 
-      window.aabFilePath = selected;
       rememberAab(selected);
-
-      const message = document.getElementById('message');
-      message.innerText = "已选择文件：" + window.aabFilePath + "\n\n"
-
-      start_process_aab();
     });
 }
 
@@ -289,6 +354,7 @@ ipcRenderer.on('onDeviceList', function (event, deviceList) {
     option.textContent = device.device_id + "|" + device.device_name;
     select.appendChild(option);
   });
+  updateActionState();
 });
 
 RefreshConnectDevice = function () {
@@ -296,6 +362,9 @@ RefreshConnectDevice = function () {
 };
 InstallAAb = function () {
   var filepath = window.aabFilePath;
+  if (window.installBusy) {
+    return;
+  }
   if (!filepath) {
     alert("请先选择 aab 文件");
     return;
@@ -305,13 +374,30 @@ InstallAAb = function () {
     refreshAabCandidates();
     return;
   }
+  var device = document.getElementById('connectdevice');
+  if (!device || !device.value) {
+    alert("请先选择连接设备");
+    return;
+  }
+  const log = document.getElementById('log');
+  log.innerText = "正在安装：\n";
+  rememberAab(filepath);
+  window.installBusy = true;
+  updateActionState();
   ipcRenderer.send('install_aab', filepath);
 };
 
 ClearLog = function () {
   const log = document.getElementById('log');
-  log.innerText = "0.0";
+  log.innerText = "";
+}
+
+CheckUpdate = function () {
+  if (window.installBusy) return;
+  ipcRenderer.send('check_update');
 }
 
 RefreshConnectDevice();
 initAabHistory();
+updateActionState();
+ipcRenderer.send('query_app_info');
