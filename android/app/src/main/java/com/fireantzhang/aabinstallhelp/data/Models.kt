@@ -14,6 +14,7 @@ enum class InstallStep {
 enum class InstallKind {
     Install,
     Update,
+    Reinstall,
     Downgrade
 }
 
@@ -32,6 +33,7 @@ data class AabFile(
     fun actionLabel(): String = when (installKind) {
         InstallKind.Install -> "安装"
         InstallKind.Update -> "更新"
+        InstallKind.Reinstall -> "再次安装"
         InstallKind.Downgrade -> "降级"
     }
 }

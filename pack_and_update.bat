@@ -119,6 +119,22 @@ if errorlevel 1 (
 )
 echo updated resources\app.asar
 
+if exist "resources\icon.ico" (
+  copy /Y "resources\icon.ico" "%INSTALL_DIR%\resources\icon.ico" >nul
+  echo updated resources\icon.ico
+)
+if exist "resources\icon.png" (
+  copy /Y "resources\icon.png" "%INSTALL_DIR%\resources\icon.png" >nul
+)
+if exist "node_modules\rcedit\bin\rcedit-x64.exe" if exist "resources\icon.ico" (
+  "node_modules\rcedit\bin\rcedit-x64.exe" "%INSTALL_DIR%\%EXE_NAME%" --set-icon "resources\icon.ico"
+  if errorlevel 1 (
+    echo WARN: failed to embed icon into exe
+  ) else (
+    echo updated %EXE_NAME% icon
+  )
+)
+
 if "%SYNC_ASSETS%"=="1" (
   if not exist "%INSTALL_DIR%\resources\assets" mkdir "%INSTALL_DIR%\resources\assets"
   if exist "assets_common\" (

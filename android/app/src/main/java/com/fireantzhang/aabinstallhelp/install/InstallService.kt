@@ -80,8 +80,11 @@ class InstallService : Service() {
                 InstallKind.Update -> log(
                     "本机已安装 ${info.pkg} ${SplitApkInstaller.versionLabel(existing)}，aab ${info.versionLabel()} 版本更高，将进行更新"
                 )
+                InstallKind.Reinstall -> log(
+                    "本机已安装 ${info.pkg} ${SplitApkInstaller.versionLabel(existing)}，与 aab ${info.versionLabel()} 版本相同，将再次安装"
+                )
                 InstallKind.Downgrade -> log(
-                    "本机已安装 ${info.pkg} ${SplitApkInstaller.versionLabel(existing)}，aab ${info.versionLabel()} 不高于已装版本，将进行降级"
+                    "本机已安装 ${info.pkg} ${SplitApkInstaller.versionLabel(existing)}，aab ${info.versionLabel()} 版本更低，将进行降级"
                 )
             }
 

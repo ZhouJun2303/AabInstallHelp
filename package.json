@@ -26,6 +26,14 @@
       {
         "from": "assets",
         "to": "assets"
+      },
+      {
+        "from": "resources/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
       }
     ],
     "files": [
@@ -33,9 +41,7 @@
       "main.js",
       "process.js",
       "handle_drag.js",
-      "style.css",
-      "resources/icon.png",
-      "resources/icon.ico"
+      "style.css"
     ],
     "mac": {
       "asar": false,
@@ -50,6 +56,10 @@
         "nsis"
       ],
       "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico"
     },
     "publish": [],
     "directories": {

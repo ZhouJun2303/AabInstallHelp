@@ -23,17 +23,42 @@ const DEBUG_SIGN = {
   key_pass: 'android'
 };
 
+function resolveAppIconPath() {
+  const names = ['icon.png', 'icon.ico'];
+  const dirs = [];
+  if (app.isPackaged) {
+    dirs.push(process.resourcesPath);
+  }
+  dirs.push(path.join(__dirname, 'resources'));
+  dirs.push(__dirname);
+  for (let i = 0; i < dirs.length; i++) {
+    for (let j = 0; j < names.length; j++) {
+      const iconPath = path.join(dirs[i], names[j]);
+      if (readFile.existsSync(iconPath)) {
+        return iconPath;
+      }
+    }
+  }
+  return '';
+}
+
+function loadAppIcon() {
+  const iconPath = resolveAppIconPath();
+  if (!iconPath) {
+    return null;
+  }
+  const img = nativeImage.createFromPath(iconPath);
+  if (!img || img.isEmpty()) {
+    return null;
+  }
+  return img;
+}
+
 // 创建主窗口
 function createWindow() {
-  // 创建浏览器窗口
-  const iconIco = path.join(__dirname, 'resources', 'icon.ico');
-  const iconPng = path.join(__dirname, 'resources', 'icon.png');
-  const windowIcon = (process.platform === 'win32' && readFile.existsSync(iconIco))
-    ? iconIco
-    : iconPng;
-  mainWindow = new BrowserWindow({
+  const appIcon = loadAppIcon();
+  const windowOptions = {
     title: "AAB 安装助手",
-    icon: windowIcon,
     minHeight: 640,
     minWidth: 900,
     width: 960,
@@ -41,7 +66,14 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true
     }
-  });
+  };
+  if (appIcon) {
+    windowOptions.icon = appIcon;
+  }
+  mainWindow = new BrowserWindow(windowOptions);
+  if (appIcon) {
+    mainWindow.setIcon(appIcon);
+  }
 
   // 主进程中使用
   // mainWindow.webContents.openDevTools();
@@ -56,7 +88,12 @@ function createWindow() {
 }
 
 
-app.on('ready', createWindow)
+app.on('ready', function () {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.fireantzhang.aabinstallhelp');
+  }
+  createWindow();
+})
 
 app.on("window-all-closed", function () {
   app.quit();

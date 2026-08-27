@@ -8,8 +8,12 @@ import java.io.File
 object AabInstallProbe {
     fun kind(aabVersionCode: Long?, installedVersionCode: Long?): InstallKind {
         if (installedVersionCode == null) return InstallKind.Install
-        if (aabVersionCode != null && aabVersionCode > installedVersionCode) return InstallKind.Update
-        return InstallKind.Downgrade
+        if (aabVersionCode == null) return InstallKind.Reinstall
+        return when {
+            aabVersionCode > installedVersionCode -> InstallKind.Update
+            aabVersionCode < installedVersionCode -> InstallKind.Downgrade
+            else -> InstallKind.Reinstall
+        }
     }
 
     fun enrich(context: Context, file: AabFile): AabFile {
