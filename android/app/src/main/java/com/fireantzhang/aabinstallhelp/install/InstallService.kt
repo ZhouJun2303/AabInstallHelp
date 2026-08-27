@@ -141,6 +141,7 @@ class InstallService : Service() {
                 InstallCoordinator.finished(success = false, message = "已取消")
             } else {
                 log("失败：${t.message}")
+                log(t.stackTraceToString())
                 InstallCoordinator.finished(success = false, message = t.message ?: "安装失败")
             }
         } finally {
@@ -167,6 +168,7 @@ class InstallService : Service() {
             runPipeline(File(aabPath), retriedUninstall = true)
         } catch (t: Throwable) {
             log("卸载失败：${t.message}")
+            log(t.stackTraceToString())
             InstallCoordinator.finished(success = false, message = t.message ?: "卸载失败")
             InstallCoordinator.setBusy(false)
             stopForeground(STOP_FOREGROUND_REMOVE)

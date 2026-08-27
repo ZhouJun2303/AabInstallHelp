@@ -1,3 +1,5 @@
+import java.security.KeyStore
+import java.security.PrivateKey
 import java.util.Properties
 
 plugins {
@@ -45,6 +47,7 @@ android {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
         buildConfigField("String", "GITHUB_REPO", "\"ZhouJun2303/AabInstallHelp\"")
+        buildConfigField("String", "PROJECT_URL", "\"https://github.com/ZhouJun2303/AabInstallHelp\"")
         buildConfigField("String", "DEBUG_CERT_SHA256", "\"890EEC543F84511357829E78B69D859BCFE5ED4A65393FDF57BB84F396D1AF47\"")
     }
 
@@ -117,24 +120,47 @@ android {
 
 val prepareRuntimeAssets by tasks.registering {
     val destDir = layout.projectDirectory.dir("src/main/assets/runtime")
+    val srcKeystore = rootProject.file("../assets_common/debug.keystore")
+    inputs.file(srcKeystore)
     outputs.dir(destDir)
     doLast {
-        destDir.asFile.mkdirs()
-        listOf("aapt2-arm64-v8a", "aapt2-x86_64").forEach { name ->
-            copy {
-                from(rootProject.file("runtime/$name"))
-                into(destDir)
-            }
+        val dest = destDir.asFile
+        dest.mkdirs()
+        dest.listFiles()?.forEach { it.delete() }
+
+        val ks = KeyStore.getInstance("JKS")
+        srcKeystore.inputStream().use { ks.load(it, "android".toCharArray()) }
+        val key = ks.getKey("androiddebugkey", "android".toCharArray()) as? PrivateKey
+            ?: error("debug.keystore 中没有 androiddebugkey 私钥")
+        val cert = ks.getCertificate("androiddebugkey")
+            ?: error("debug.keystore 中没有 androiddebugkey 证书")
+        dest.resolve("debug-key.pk8").writeBytes(key.encoded)
+        dest.resolve("debug-cert.der").writeBytes(cert.encoded)
+    }
+}
+
+val prepareJniLibs by tasks.registering {
+    val jniDir = layout.projectDirectory.dir("src/main/jniLibs")
+    val armSrc = rootProject.file("runtime/aapt2-arm64-v8a")
+    val x64Src = rootProject.file("runtime/aapt2-x86_64")
+    inputs.files(armSrc, x64Src)
+    outputs.dir(jniDir)
+    doLast {
+        copy {
+            from(armSrc)
+            into(jniDir.dir("arm64-v8a"))
+            rename { "libaapt2.so" }
         }
         copy {
-            from(rootProject.file("../assets_common/debug.keystore"))
-            into(destDir)
+            from(x64Src)
+            into(jniDir.dir("x86_64"))
+            rename { "libaapt2.so" }
         }
     }
 }
 
 tasks.named("preBuild") {
-    dependsOn(prepareRuntimeAssets)
+    dependsOn(prepareRuntimeAssets, prepareJniLibs)
 }
 
 dependencies {

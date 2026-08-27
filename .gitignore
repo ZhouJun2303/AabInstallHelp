@@ -67,6 +67,7 @@ android/**/build/
 android/local.properties
 android/keystore.properties
 android/app/src/main/assets/runtime/
+android/app/src/main/jniLibs/
 
 # Final packages (keep directory layout, ignore binaries)
 packages/windows/*

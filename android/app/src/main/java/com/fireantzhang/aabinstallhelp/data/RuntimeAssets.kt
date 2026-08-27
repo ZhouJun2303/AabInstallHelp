@@ -1,42 +1,37 @@
 package com.fireantzhang.aabinstallhelp.data
 
 import android.content.Context
-import android.os.Build
 import java.io.File
 
 object RuntimeAssets {
     data class Paths(
         val aapt2: File,
-        val keystore: File
+        val keyPk8: File,
+        val certDer: File
     )
 
     fun ensure(context: Context): Paths {
-        val dir = File(context.filesDir, "runtime").apply { mkdirs() }
-        val abi = preferredAbi()
-        val aapt2Name = if (abi.contains("x86_64")) "aapt2-x86_64" else "aapt2-arm64-v8a"
-        val aapt2 = File(dir, "aapt2")
-        copyAsset(context, "runtime/$aapt2Name", aapt2, executable = true)
-        val keystore = File(dir, "debug.keystore")
-        copyAsset(context, "runtime/debug.keystore", keystore, executable = false)
+        val aapt2 = File(context.applicationInfo.nativeLibraryDir, "libaapt2.so")
+        if (!aapt2.isFile) {
+            throw IllegalStateException("找不到 aapt2：${aapt2.absolutePath}")
+        }
         if (!aapt2.canExecute()) {
             aapt2.setExecutable(true, true)
         }
-        return Paths(aapt2 = aapt2, keystore = keystore)
-    }
-
-    private fun preferredAbi(): String {
-        val abis = Build.SUPPORTED_ABIS ?: emptyArray()
-        if (abis.any { it.contains("x86_64") } && !abis.any { it.contains("arm64") }) {
-            return "x86_64"
+        if (!aapt2.canExecute()) {
+            throw IllegalStateException("aapt2 不可执行：${aapt2.absolutePath}")
         }
-        return "arm64-v8a"
+        val dir = File(context.filesDir, "runtime").apply { mkdirs() }
+        val keyPk8 = File(dir, "debug-key.pk8")
+        val certDer = File(dir, "debug-cert.der")
+        copyAsset(context, "runtime/debug-key.pk8", keyPk8)
+        copyAsset(context, "runtime/debug-cert.der", certDer)
+        return Paths(aapt2 = aapt2, keyPk8 = keyPk8, certDer = certDer)
     }
 
-    private fun copyAsset(context: Context, assetName: String, dest: File, executable: Boolean) {
-        val am = context.assets
-        am.open(assetName).use { input ->
+    private fun copyAsset(context: Context, assetName: String, dest: File) {
+        context.assets.open(assetName).use { input ->
             dest.outputStream().use { output -> input.copyTo(output) }
         }
-        if (executable) dest.setExecutable(true, true)
     }
 }

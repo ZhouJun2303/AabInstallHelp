@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, ipcRenderer, dialog, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, ipcRenderer, dialog, nativeImage, clipboard, shell } = require('electron');
 const { Menu } = require('electron');
 const exec = require('child_process').exec;
 const xmlReader = require('xmlreader');
@@ -13,6 +13,8 @@ let lastUiEvent = null;
 // 应用的主窗口
 let mainWindow;
 const EXEC_OPTS = { maxBuffer: 20 * 1024 * 1024 };
+const GITHUB_REPO = 'ZhouJun2303/AabInstallHelp';
+const PROJECT_URL = 'https://github.com/' + GITHUB_REPO;
 // 所有 aab 统一使用 Android debug 测试签名，避免内置正式签名泄露
 const DEBUG_SIGN = {
   file: 'debug.keystore',
@@ -84,6 +86,10 @@ ipcMain.on('query_app_info', function (event) {
     version: app.getVersion(),
     name: app.getName()
   });
+});
+
+ipcMain.on('open_project_link', function () {
+  shell.openExternal(PROJECT_URL);
 });
 
 ipcMain.on('check_update', function (event) {
@@ -700,8 +706,6 @@ function parseDevices(event, output) {
   });
   return devices;
 };
-
-const GITHUB_REPO = 'ZhouJun2303/AabInstallHelp';
 
 function httpsGetJson(url) {
   return new Promise(function (resolve, reject) {

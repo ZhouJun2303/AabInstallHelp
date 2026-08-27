@@ -16,9 +16,12 @@ Gradle 中间产物：`app/build/outputs/apk/release/app-release.apk`
 
 ## 运行时
 
-`runtime/` 下的 `aapt2-arm64-v8a`、`aapt2-x86_64`、`debug.keystore` 会在编译时拷进 APK。转换走 bundletool 的 `BuildApksCommand`（进程内），aapt2 作为可执行文件抽出后调用。
+转换走 bundletool 的 `BuildApksCommand`（进程内）。
 
-本机 `assembleDebug` 已通过：bundletool 作为 Gradle 依赖打进 APK（debug APK 约 90MB）。真机转换仍取决于 ART 能否跑 bundletool + 可执行 aapt2。若失败，日志会有完整异常，再考虑 JRE 回退。
+- 签名：构建时从 `assets_common/debug.keystore` 导出 `debug-key.pk8` / `debug-cert.der`（ART 没有 JKS，不能直接读 keystore）。身份与桌面相同（`androiddebugkey` / `android`）。
+- aapt2：`runtime/aapt2-*` 打进 `jniLibs` 成 `libaapt2.so`，运行时从 `nativeLibraryDir` 执行（应用 `filesDir` 在 Android 10+ 经常是 noexec）。
+
+失败时安装日志会带完整堆栈。
 
 ## 权限
 

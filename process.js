@@ -397,6 +397,13 @@ CheckUpdate = function () {
   ipcRenderer.send('check_update');
 }
 
+OpenProjectLink = function (event) {
+  if (event) {
+    event.preventDefault();
+  }
+  ipcRenderer.send('open_project_link');
+}
+
 RefreshConnectDevice();
 initAabHistory();
 updateActionState();

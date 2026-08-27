@@ -56,6 +56,19 @@ body {
     opacity: 0.95;
 }
 
+.btn-icon {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon svg {
+    display: block;
+}
+
 .header-actions {
     display: flex;
     align-items: center;

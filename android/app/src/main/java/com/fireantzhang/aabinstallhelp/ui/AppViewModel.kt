@@ -239,4 +239,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("aab", text))
     }
+
+    fun openProjectPage() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.PROJECT_URL)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { getApplication<Application>().startActivity(intent) }
+    }
 }

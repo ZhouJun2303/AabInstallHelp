@@ -59,6 +59,7 @@
     "type": "git",
     "url": "https://github.com/ZhouJun2303/AabInstallHelp.git"
   },
+  "homepage": "https://github.com/ZhouJun2303/AabInstallHelp",
   "author": "fireantzhang",
   "license": "ISC",
   "devDependencies": {

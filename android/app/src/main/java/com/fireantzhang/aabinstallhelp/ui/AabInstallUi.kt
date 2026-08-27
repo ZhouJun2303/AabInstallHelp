@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.Button
@@ -84,7 +85,8 @@ fun AabInstallAppScreen(vm: AppViewModel) {
                 hasInstall = ui.hasInstall,
                 onStorage = { context.startActivity(vm.storageSettingsIntent()) },
                 onInstall = { context.startActivity(vm.installSettingsIntent()) },
-                onRefresh = { vm.refreshPermissions(); if (vm.ui.value.permissionsReady) vm.scan() }
+                onRefresh = { vm.refreshPermissions(); if (vm.ui.value.permissionsReady) vm.scan() },
+                onOpenProject = { vm.openProjectPage() }
             )
             return@AabTheme
         }
@@ -112,6 +114,9 @@ fun AabInstallAppScreen(vm: AppViewModel) {
                                 }
                             },
                             actions = {
+                                IconButton(onClick = { vm.openProjectPage() }) {
+                                    Icon(Icons.Outlined.Info, contentDescription = "关于")
+                                }
                                 IconButton(onClick = { vm.checkUpdate() }, enabled = !install.busy && !ui.checkingUpdate) {
                                     Icon(Icons.Outlined.SystemUpdateAlt, contentDescription = "检查更新")
                                 }
@@ -238,10 +243,16 @@ private fun PermissionPane(
     hasInstall: Boolean,
     onStorage: () -> Unit,
     onInstall: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onOpenProject: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("AAB 安装助手", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("AAB 安装助手", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onOpenProject) {
+                Icon(Icons.Outlined.Info, contentDescription = "关于")
+            }
+        }
         Text("安装前需要授予存储与安装权限。未完成前不能扫描或安装。", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
         PermissionCard("所有文件访问", "用于扫描 Download 等目录中的 aab", hasStorage, onStorage)
         PermissionCard("安装未知应用", "用于把拆出的 APK 装到本机", hasInstall, onInstall)
