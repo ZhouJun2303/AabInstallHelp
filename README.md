@@ -4,6 +4,8 @@
 
 桌面端（Windows / macOS）用 Electron；另有 Android APK，可扫描共享存储中的 `.aab` 安装。一律使用内置 debug 测试签名，不能覆盖商店正式包，也不能用于上架。
 
+**使用者请先看 [使用说明.md](使用说明.md)**（下载哪个包、连手机、授权、安装步骤、签名冲突、常见问题）。下文是开发者运行与打包。
+
 ## 运行
 
 需要 [Node.js](https://nodejs.org/en/download/)。
